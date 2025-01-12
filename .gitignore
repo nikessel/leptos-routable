@@ -1,0 +1,46 @@
+# Rust build artifacts
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# Except for examples and workspace Cargo.lock
+!/Cargo.lock
+!/examples/**/Cargo.lock
+
+# Development environment
+.env
+.direnv/
+.idea/
+.vscode/
+
+# Generated files
+**/dist/
+**/pkg/
+**/wasm-pack.log
+
+# OS-specific files
+.DS_Store
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Desktop.ini
+
+# Debug files
+**/*.pdb
+**/*.dSYM/
+
+# Tailwind
+**/output.css
+**/_output.css
+
+# Nix
+result
+result-*
+.nixpkgs/
+.nix-defexpr/
+.nix-profile
+
+# Build output
+**/debug/
+**/release/
+**/rls/

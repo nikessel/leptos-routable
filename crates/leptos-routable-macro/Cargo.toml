@@ -1,0 +1,16 @@
+[package]
+name = "leptos-routable-macro"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+#darling = "0.20.10"
+deluxe = "0.5.0"
+proc-macro-error2 = "2.0.1"
+syn = "2.0.96"
+quote = "1.0.38"
+proc-macro2 = "1.0"
+
