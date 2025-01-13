@@ -3,6 +3,11 @@ name = "leptos-routable"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["hook-extensions"]
+hook-extensions = []
+
 [dependencies]
 leptos-routable-macro = { path = "./crates/leptos-routable-macro" }
-#leptos = "0.7.3"
+leptos_router = "0.7.3"
+leptos = "0.7.3"
