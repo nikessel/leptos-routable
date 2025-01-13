@@ -809,7 +809,9 @@ dependencies = [
 name = "leptos-routable"
 version = "0.1.0"
 dependencies = [
+ "leptos",
  "leptos-routable-macro",
+ "leptos_router",
 ]
 
 [[package]]

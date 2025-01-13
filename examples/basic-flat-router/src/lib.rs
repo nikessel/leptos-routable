@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_meta::{Html, Meta, Title};
-use leptos_routable::prelude::{route_component, Routable};
-use leptos_router::{params::{Params}};
+use leptos_routable::prelude::*;
+use leptos_router::params::Params;
 
 #[derive(Routable)]
 pub enum AppRouter {

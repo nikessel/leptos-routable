@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use basic::App;
+use basic_flat_router::App;
 
 fn main() {
     // set up logging
