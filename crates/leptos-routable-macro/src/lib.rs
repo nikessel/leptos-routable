@@ -4,6 +4,7 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 mod derive_routable;
 mod route_component;
+pub(crate) mod utils;
 
 // Public macro entry point for `#[derive(Routable)]`
 #[proc_macro_derive(Routable, attributes(route, fallback))]

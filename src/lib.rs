@@ -6,5 +6,3 @@ pub mod prelude {
     pub use super::hook_extensions::*;
     pub use leptos_routable_macro::*;
 }
-
-
