@@ -33,11 +33,6 @@ pub fn ContactView() -> impl IntoView {
 }
 
 #[derive(Params, PartialEq, Debug)]
-pub struct MyParams {
-    pub id: Option<usize>,
-}
-
-#[derive(Params, PartialEq, Debug)]
 pub struct MyQuery {
     pub q: Option<String>,
 }
