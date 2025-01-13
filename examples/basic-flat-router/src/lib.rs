@@ -1,4 +1,4 @@
-use leptos::prelude::*;
+use leptos::prelude::{component, *};
 use leptos_meta::{Html, Meta, Title};
 use leptos_routable::prelude::*;
 use leptos_router::params::Params;
@@ -13,9 +13,15 @@ pub enum AppRouter {
     AssetList,
     #[route(path = "/asset/:id")]
     AssetDetails { id: u64 },
-    #[fallback]
+    #[fallback(replace)]
     #[route(path = "/404")]
     NotFound,
+}
+
+#[derive(Params, PartialEq, Debug)]
+pub struct AssetQuery {
+    pub q: Option<String>,
+    pub lang: Option<String>,
 }
 
 #[route_component(AppRouter::Home)]
@@ -32,29 +38,35 @@ pub fn ContactView() -> impl IntoView {
     }
 }
 
-#[derive(Params, PartialEq, Debug)]
-pub struct MyQuery {
-    pub q: Option<String>,
-}
-
 #[route_component(AppRouter::AssetDetails)]
-pub fn AssetDetailsView() -> impl IntoView {
+pub fn AssetDetailsView(
+    // #[path_param] id: u64,
+    //  query: Memo<Result<Option<AssetQuery>, ParamsError>>,
+) -> impl IntoView {
     view! {
-        <h1>"Asset Details"</h1>
+        <div>
+            // <h1>{ format!("Asset ID: {}", id) }</h1>
+            // <p>{ format!("Query: {:?}", query) }</p>
+        </div>
     }
 }
 
 #[route_component(AppRouter::AssetList)]
-pub fn AssetListView() -> impl IntoView {
+pub fn AssetListView(
+    // #[query] query: Option<AssetQuery>,
+) -> impl IntoView {
     view! {
-        <h1>"Asset List"</h1>
+        <div>
+            <h1>"Asset List"</h1>
+            // <p>{ format!("Query: {:?}", query) }</p>
+        </div>
     }
 }
 
 #[route_component(AppRouter::NotFound)]
 pub fn FallbackView() -> impl IntoView {
     view! {
-        <h1>"404"</h1>
+        <h1>"404: Not Found"</h1>
     }
 }
 
