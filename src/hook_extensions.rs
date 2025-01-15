@@ -10,7 +10,52 @@ use leptos::prelude::{Get, Memo, Set, With};
 use leptos::reactive::wrappers::write::SignalSetter;
 
 pub trait IntoPath {
+    /// Convert self into a path string suitable for navigation
     fn into_path(self) -> String;
+}
+
+impl IntoPath for u64 {
+    fn into_path(self) -> String {
+        self.to_string()
+    }
+}
+
+impl IntoPath for String {
+    fn into_path(self) -> String {
+        self
+    }
+}
+
+impl IntoPath for &str {
+    fn into_path(self) -> String {
+        self.to_string()
+    }
+}
+
+#[cfg(feature="uuid")]
+#[derive(Clone, Debug)]
+pub enum UuidPath {
+    Standard(Uuid),
+    Simple(Uuid),
+    Urn(Uuid),
+}
+
+#[cfg(feature="uuid")]
+impl UuidPath {
+    pub fn new(uuid: Uuid) -> Self {
+        UuidPath::Standard(uuid)
+    }
+}
+
+#[cfg(feature="uuid")]
+impl IntoPath for UuidPath {
+    fn into_path(self) -> String {
+        match self {
+            UuidPath::Standard(uuid) => uuid.to_string(),
+            UuidPath::Simple(uuid) => uuid.as_simple().to_string(),
+            UuidPath::Urn(uuid) => uuid.as_urn().to_string(),
+        }
+    }
 }
 
 pub trait NavigateExt: Fn(&str, NavigateOptions) {
