@@ -1,10 +1,16 @@
-use std::fmt::Debug;
-use leptos::prelude::{component, *};
+mod dashboard;
+mod admin;
+use leptos::prelude::*;
 use leptos_meta::{Html, Meta, Title};
-use leptos_routable::prelude::*;
-use leptos_router::{path};
-use leptos_router::hooks::{use_location};
+use leptos_routable::prelude::{MaybeParam, Routable, ToHref};
 use leptos_router::components::{Router, A};
+use crate::dashboard::{DashboardRoutes, DashboardView};
+use crate::admin::{AdminRoutes, AdminView};
+use leptos_routable::prelude::combine_paths;
+
+fn get_auth_redirect_path() -> AppRoutes {
+    AppRoutes::Login
+}
 
 #[derive(Routable, ToHref)]
 #[routes(
@@ -15,20 +21,103 @@ use leptos_router::components::{Router, A};
 pub enum AppRoutes {
     #[route(path = "/")]
     Home,
+
     #[route(path = "/contact")]
     Contact,
+
     #[route(path = "/asset")]
     AssetList,
+
     #[route(path = "/asset/:id")]
     AssetDetails {
         id: u64,
         action: Option<String>,
     },
-    #[route(path = "/profile")]
+
+    #[protected_route(
+        path = "/profile",
+        condition = "|| Some(true)",
+        redirect_path = "get_auth_redirect_path",
+        fallback = "NotFoundView"
+    )]
     Profile,
+
+    #[route(path = "/login")]
+    Login,
+
+    #[parent_route(
+        path = "/dashboard",
+        ssr = "::leptos_router::SsrMode::default()"
+    )]
+    Dashboard(DashboardRoutes),
+
+    #[protected_parent_route(
+        path = "/admin",
+        condition = "|| Some(false)",
+        redirect_path = "get_auth_redirect_path",
+        fallback = "NotFoundView",
+        ssr = "::leptos_router::SsrMode::default()"
+    )]
+    Admin(AdminRoutes),
+
+    // Fallback at the top level
     #[fallback]
     #[route(path = "/404")]
     NotFound,
+}
+
+#[component]
+pub fn LoginView() -> impl IntoView {
+    let (logged_in, set_logged_in) = create_signal(false);
+    let navigate = leptos_router::hooks::use_navigate();
+
+    let login = Callback::<()>::new(move |_| {
+        set_logged_in(true);
+        navigate(&*AppRoutes::Profile.to_string(), Default::default());
+    });
+
+    let logout = Callback::<()>::new(move |_| {
+        set_logged_in(false);
+    });
+
+    view! {
+        <div class="p-4 text-center">
+            <h1 class="text-2xl font-bold mb-4">"Login"</h1>
+            <Show
+                when=logged_in
+                fallback= move || view! {
+                    <div class="space-y-4">
+                        <p class="text-gray-600">"You need to login to access protected routes."</p>
+                        <button
+                            class="px-4 py-2 bg-green-500 text-white rounded"
+                            on:click=move |_| login.run(())
+                        >
+                            "Login"
+                        </button>
+                    </div>
+                }
+            >
+                <div class="space-y-4">
+                    <p class="text-green-600">"You are logged in!"</p>
+                    <button
+                        class="px-4 py-2 bg-red-500 text-white rounded"
+                        on:click=move |_| logout.run(())
+                    >
+                        "Logout"
+                    </button>
+                </div>
+            </Show>
+
+            <div class="mt-4">
+                <A
+                    href=AppRoutes::Home
+                    attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
+                >
+                    "Back Home"
+                </A>
+            </div>
+        </div>
+    }
 }
 
 #[component]
@@ -53,51 +142,39 @@ pub fn ContactView() -> impl IntoView {
 
 #[component]
 pub fn AssetListView() -> impl IntoView {
+    use leptos_router::hooks::use_location;
     view! {
         <div class="p-4">
             <h1 class="text-2xl font-bold mb-4">"Asset List"</h1>
             <div class="space-y-4">
                 <h2 class="text-xl">"Test Navigation Links"</h2>
                 <div class="flex flex-col space-y-2">
-                    <A
-                        href=AppRoutes::Home
-                        attr:class="inline-block px-4 py-2 bg-green-500 text-white rounded"
-                    >
+                    <A href=AppRoutes::Home attr:class="inline-block px-4 py-2 bg-green-500 text-white rounded">
                         "→ Go Home"
                     </A>
-
-                    <A
-                        href=AppRoutes::Contact
-                        attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
-                    >
+                    <A href=AppRoutes::Contact attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
                         "→ Contact Page"
                     </A>
-
-                    <A
-                        href=AppRoutes::AssetDetails { id: 123, action: None }
-                        attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
-                    >
+                    <A href=AppRoutes::AssetDetails { id: 123, action: None }
+                       attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
                         "→ Asset 123 (no action)"
                     </A>
-
-                    <A
-                        href=AppRoutes::AssetDetails { id: 456, action: Some("edit".to_string()) }
-                        attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
-                    >
+                    <A href=AppRoutes::AssetDetails { id: 456, action: Some("edit".to_string()) }
+                       attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
                         "→ Asset 456 (edit action)"
                     </A>
-
-                    <A
-                        href=AppRoutes::Profile
-                        attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
-                    >
+                    <A href=AppRoutes::Profile attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
                         "→ Profile Page"
                     </A>
-
-                    <A
-                        href=AppRoutes::NotFound
-                        attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
-                    >
+                    <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
+                       attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
+                        {format!("→ Dashboard Home: {}", AppRoutes::Dashboard(DashboardRoutes::DashboardHome))}
+                    </A>
+                    <A href=AppRoutes::Admin(AdminRoutes::AdminHome)
+                       attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
+                        "→ Admin Dashboard"
+                    </A>
+                    <A href=AppRoutes::NotFound attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
                         "→ 404 Page"
                     </A>
                 </div>
@@ -144,25 +221,14 @@ pub fn AssetDetailsView() -> impl IntoView {
             </h1>
 
             <div class="flex space-x-4">
-                <A
-                    href=AppRoutes::Home
-                    attr:class="px-4 py-2 bg-green-500 text-white rounded"
-                >
+                <A href=AppRoutes::Home attr:class="px-4 py-2 bg-green-500 text-white rounded">
                     "Home"
                 </A>
-
-                <A
-                    href=prev_href
-                    attr:class="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
-                    attr:disabled=move || id.get().unwrap_or_default() <= 1
-                >
+                <A href=prev_href attr:class="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+                   attr:disabled=move || id.get().unwrap_or_default() <= 1>
                     "Previous"
                 </A>
-
-                <A
-                    href=next_href
-                    attr:class="px-4 py-2 bg-blue-500 text-white rounded"
-                >
+                <A href=next_href attr:class="px-4 py-2 bg-blue-500 text-white rounded">
                     "Next"
                 </A>
             </div>
@@ -221,8 +287,15 @@ pub fn App() -> impl IntoView {
                     <A href=AppRoutes::Contact attr:class="text-white px-3 py-1 bg-blue-600 rounded">"Contact"</A>
                     <A href=AppRoutes::AssetList attr:class="text-white px-3 py-1 bg-blue-600 rounded">"Assets"</A>
                     <A href=AppRoutes::Profile attr:class="text-white px-3 py-1 bg-blue-600 rounded">"Profile"</A>
+                    <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
+                       attr:class="text-white px-3 py-1 bg-blue-600 rounded">
+                        "Dashboard"
+                    </A>
+                    <A href=AppRoutes::Admin(AdminRoutes::AdminHome)
+                       attr:class="text-white px-3 py-1 bg-blue-600 rounded">
+                        "Admin"
+                    </A>
                 </nav>
-
                 {move || AppRoutes::routes()}
             </Router>
         </main>

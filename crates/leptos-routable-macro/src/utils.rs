@@ -1,15 +1,8 @@
-use proc_macro2::TokenStream as TokenStream2;
+use syn::{parse2, spanned::Spanned, File};
+use proc_macro2::{TokenStream as TokenStream2};
 use prettyplease::unparse;
-use syn::{parse2, spanned::Spanned, File, Ident};
 
-/// Builds a hooking function name of the form `"__ROUTE_COMP_{Enum}_{Variant}"`.
-pub(crate) fn build_registry_func_name(fn_name: &str) -> Ident {
-    let prefix = "__ROUTE_COMP_";
-    let full_name = format!("{}{}", prefix, fn_name);
-    Ident::new(&full_name, fn_name.span())
-}
-
-/// Attempts to format the provided token stream as well-formed Rust code.
+#[allow(unused)]
 pub(crate) fn format_generated_code(expanded: TokenStream2) -> TokenStream2 {
     match parse2::<File>(expanded.clone()) {
         Ok(file) => {
@@ -18,4 +11,23 @@ pub(crate) fn format_generated_code(expanded: TokenStream2) -> TokenStream2 {
         }
         Err(_) => expanded,
     }
+}
+
+pub(crate) fn build_variant_view_name(
+    _enum_ident: &syn::Ident,
+    variant_ident: &syn::Ident,
+    config: &crate::derive_routable::RoutableConfiguration
+) -> syn::Ident {
+    let mut name = variant_ident.to_string();
+
+    // Add prefix and suffix
+    let full_name = format!(
+        "{}{}{}",
+        config.view_prefix.clone(),
+        name,
+        config.view_suffix
+    );
+
+    // Convert to syn::Ident, preserving the original span
+    syn::Ident::new(&full_name, variant_ident.span())
 }

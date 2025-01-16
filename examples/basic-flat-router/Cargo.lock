@@ -98,6 +98,7 @@ dependencies = [
  "leptos_meta",
  "leptos_router",
  "log",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",

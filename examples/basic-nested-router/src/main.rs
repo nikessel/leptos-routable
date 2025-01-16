@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use basic_flat_router::App;
+use basic_nested_router::App;
 
 fn main() {
     _ = console_log::init_with_level(log::Level::Debug);

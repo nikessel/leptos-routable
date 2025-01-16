@@ -2,11 +2,11 @@
 **/target/
 **/*.rs.bk
 Cargo.lock
-
+route_component
 # Except for examples and workspace Cargo.lock
 !/Cargo.lock
 !/examples/**/Cargo.lock
-
+docs
 # Development environment
 .env
 .direnv/

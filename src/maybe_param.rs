@@ -30,9 +30,7 @@ where
 
 macro_rules! define_typed_param_type {
     (
-        // The name of our new struct, e.g. MaybeParam
         $type_name:ident,
-        // The function that returns a reactive map, e.g. use_params_map or use_query_map
         $map_fn:path
     ) => {
         #[derive(Debug, PartialEq, Clone, Eq)]
@@ -45,15 +43,11 @@ macro_rules! define_typed_param_type {
         where
             T: FromStr + Send + Clone + Sync + 'static + PartialEq + Eq,
         {
-            /// Creates a new typed param for `key`, using `$map_fn` to retrieve values.
             pub fn new(key: &'static str) -> Self {
-                // (1) Grab the reactive map memo.
                 let map_memo = $map_fn();
 
-                // (2) Build a `Memo<ParamValue<T>>` that does the parse.
                 let memo = Memo::new(move |_| {
-                    // We call `map_memo.get().get_str(key)`,
-                    // then **immediately** convert `&str` → `String`.
+
                     let raw: Option<String> = map_memo
                         .get()
                         .get_str(key)
@@ -72,43 +66,36 @@ macro_rules! define_typed_param_type {
                 Self { key, memo }
             }
 
-            /// Current ParamValue<T> (Missing, ParseError, or Value).
             pub fn get(&self) -> ParamValue<T> {
                 self.memo.get()
             }
 
-            /// Memo that is `true` if Missing.
             pub fn is_missing(&self) -> Memo<bool> {
                 let memo = self.memo.clone();
                 Memo::new(move |_| matches!(memo.get(), ParamValue::Missing))
             }
 
-            /// Memo that is `true` if parse error.
             pub fn is_parse_error(&self) -> Memo<bool> {
                 let memo = self.memo.clone();
                 Memo::new(move |_| matches!(memo.get(), ParamValue::ParseError(_)))
             }
 
-            /// Memo that is `true` if there's a valid value.
             pub fn is_value(&self) -> Memo<bool> {
                 let memo = self.memo.clone();
                 Memo::new(move |_| matches!(memo.get(), ParamValue::Value(_)))
             }
 
-            /// Memo of `Option<T>`.
             pub fn ok(&self) -> Memo<Option<T>> {
                 let memo = self.memo.clone();
                 Memo::new(move |_| memo.get().clone().ok())
             }
 
-            /// Memo of `T` or `default` if missing/parse error.
             pub fn unwrap_or(&self, default: T) -> Memo<T> {
                 let memo = self.memo.clone();
                 Memo::new(move |_| memo.get().clone().unwrap_or(default.clone()))
             }
         }
 
-        /// So `"id".into()` yields a $type_name<T>.
         impl<T> From<&'static str> for $type_name<T>
         where
             T: FromStr + Send + Clone + Sync + 'static + PartialEq + Eq,

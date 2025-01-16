@@ -1,95 +1,248 @@
-//! Contains the logic for `#[derive(Routable)]`.
-
 use proc_macro::TokenStream;
+use std::str::FromStr;
 use proc_macro2::{Span as Span2, TokenStream as TokenStream2};
-use quote::{quote, quote_spanned};
-use syn::{
-    parse_macro_input, spanned::Spanned,
-    Data::{Enum, Struct, Union},
-    DeriveInput,
-};
-use darling::{FromAttributes, FromMeta};
+use quote::{quote, quote_spanned, ToTokens};
+use syn::{parse_macro_input, spanned::Spanned, Data::{Enum, Struct, Union}, DeriveInput, Ident, Type, Variant, Fields};
+use darling::{FromAttributes, FromDeriveInput, FromMeta, FromVariant};
 
-#[derive(Default, Debug, FromMeta)]
-enum RoutingMode {
-    #[default]
-    Auto,
-    Flat,
-    Nested,
+trait IntoChildTokens {
+    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2>;
 }
 
-#[derive(FromAttributes, Default, Debug)]
-#[darling(attributes(routing))]
-struct RoutesAttrs {
-    #[darling(default)]
-    pub mode: RoutingMode,
-    #[darling(default)]
-    pub transition: bool,
-}
-
-#[derive(Debug, FromAttributes)]
+/* -------------------------------------------------------------------------------------------------
+ * leptos_router::components::Route
+ * -----------------------------------------------------------------------------------------------*/
+#[derive(std::fmt::Debug, FromVariant)]
 #[darling(attributes(route))]
-pub struct RouteAttrs {
-    pub path: Option<String>,
+pub struct RouteVariant {
+    ident: Ident,
+    fields: darling::ast::Fields<syn::Type>,
+
+    // Arguments
+    path: syn::LitStr,
 }
 
-#[derive(Debug, FromAttributes)]
-#[darling(attributes(parent_route))]
-pub struct ParentRouteAttrs {
-    pub path: Option<String>,
-}
-
-#[derive(Debug, FromAttributes)]
-#[darling(attributes(protected_route))]
-pub struct ProtectedRouteAttrs {
-    pub path: Option<String>,
-    pub condition: Option<String>,
-    #[darling(default)]
-    pub redirect_path: Option<String>,
-    #[darling(default)]
-    pub fallback: Option<String>,
-}
-
-#[derive(Debug, FromAttributes)]
-#[darling(attributes(protected_parent_route))]
-pub struct ProtectedParentRouteAttrs {
-    pub path: Option<String>,
-    pub condition: Option<String>,
-    #[darling(default)]
-    pub redirect_path: Option<String>,
-    #[darling(default)]
-    pub fallback: Option<String>,
-}
-
-#[derive(Debug, Default, FromAttributes)]
-#[darling(attributes(fallback))]
-pub struct FallbackAttrs {
-    #[darling(default)]
-    pub replace: Option<bool>,
-    #[darling(default)]
-    pub resolve: Option<bool>,
-}
-
-// Not all route kinds may be fully handled. Some logic is stubbed or not implemented yet.
-enum RouteKind {
-    Route(RouteAttrs),
-    ParentRoute(ParentRouteAttrs),
-    ProtectedRoute(ProtectedRouteAttrs),
-    ProtectedParentRoute(ProtectedParentRouteAttrs),
-    None,
-}
-
-impl Default for RouteKind {
-    fn default() -> Self {
-        RouteKind::None
+impl IntoChildTokens for RouteVariant {
+    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+        let path = self.path;
+        Some(quote! {
+            ::leptos_router::components::Route(
+                ::leptos_router::components::RouteProps::builder()
+                    .path(::leptos_router::path!(#path))
+                    .view(#view)
+                    .build())
+        })
     }
 }
 
+/* -------------------------------------------------------------------------------------------------
+ * leptos_router::components::ParentRoute
+ * -----------------------------------------------------------------------------------------------*/
+#[derive(std::fmt::Debug, FromVariant)]
+#[darling(attributes(parent_route))]
+pub struct ParentRouteVariant {
+    ident: Ident,
+    fields: darling::ast::Fields<syn::Type>,
+    routable: Option<Ident>,
+
+    // Arguments
+    path: syn::LitStr,
+    ssr: Option<syn::Expr>,
+}
+
+impl IntoChildTokens for ParentRouteVariant {
+    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+        let path = self.path;
+        let ssr = self.ssr.unwrap_or(syn::parse_quote!(Default::default()));
+        // There can only be one, error elsewhere ensures.
+        let inner_ident = self.fields.fields.into_iter().next()?;
+        Some(quote! { #inner_ident::parent_route(::leptos_router::path!(#path), #view, #ssr) })
+    }
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * leptos_router::components::ProtectedRoute
+ * -----------------------------------------------------------------------------------------------*/
+#[derive(std::fmt::Debug, FromVariant)]
+#[darling(attributes(protected_route))]
+pub struct ProtectedRouteVariant {
+    ident: Ident,
+    fields: darling::ast::Fields<syn::Type>,
+
+    // Arguments
+    path: syn::LitStr,
+    condition: syn::Expr,
+    redirect_path: syn::Expr,
+    fallback: syn::Expr,
+}
+
+impl IntoChildTokens for ProtectedRouteVariant {
+    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+        let path = self.path;
+        let condition = self.condition;
+        let redirect_path = self.redirect_path;
+        let fallback = self.fallback;
+        Some(quote! {
+             ::leptos_router::components::ProtectedRoute(
+                 ::leptos_router::components::ProtectedRouteProps::builder()
+                     .path(::leptos_router::path!(#path))
+                     .view(#view)
+                     .condition(#condition)
+                     .redirect_path(#redirect_path)
+                     .fallback(#fallback)
+                     .build()
+             )
+        })
+    }
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * leptos_router::components::ProtectedParentRoute
+ * -----------------------------------------------------------------------------------------------*/
+#[derive(std::fmt::Debug, FromVariant)]
+#[darling(attributes(protected_parent_route))]
+pub struct ProtectedParentRouteVariant {
+    ident: Ident,
+    fields: darling::ast::Fields<syn::Type>,
+
+    // Arguments
+    path: syn::LitStr,
+    condition: syn::Expr,
+    redirect_path: syn::Expr,
+    fallback: syn::Expr,
+    ssr: Option<syn::Expr>,
+}
+
+impl IntoChildTokens for ProtectedParentRouteVariant {
+    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+        let path = self.path;
+        let condition = self.condition;
+        let redirect_path = self.redirect_path;
+        let fallback = self.fallback;
+        let ssr = self.ssr.unwrap_or(syn::parse_quote!(Default::default()));
+        // There can only be one, error elsewhere ensures.
+        let inner_ident = self.fields.fields.into_iter().next()?;
+        Some(quote! { #inner_ident::protected_parent_route(::leptos_router::path!(#path), #view, #condition, #fallback.into(), #redirect_path, #ssr) })
+    }
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * Fallback
+ * -----------------------------------------------------------------------------------------------*/
+#[derive(std::fmt::Debug, FromVariant)]
+#[darling(attributes(fallback))]
+pub struct StandaloneFallbackVariant {
+    ident: Ident,
+    discriminant: Option<syn::Expr>,
+    fields: darling::ast::Fields<syn::Type>,
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * `#[derive(Routable)] -> #[routable(...)]`
+ * -----------------------------------------------------------------------------------------------*/
+#[derive(FromDeriveInput, std::fmt::Debug)]
+#[darling(attributes(routes), supports(enum_any))]
+pub(crate) struct RoutableConfiguration {
+    ident: syn::Ident,
+    attrs: Vec<syn::Attribute>,
+
+    #[darling(default)]
+    pub(crate) transition: bool,
+
+    #[darling(default)]
+    pub(crate) view_prefix: String,
+
+    #[darling(default = "default_view_suffix")]
+    pub(crate) view_suffix: String,
+}
+
+impl IntoChildTokens for RouteKind {
+    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+        match self {
+            Self::Route(route) => route.into_child_tokens(view),
+            Self::ParentRoute(parent) => parent.into_child_tokens(view),
+            Self::ProtectedRoute(protected) => protected.into_child_tokens(view),
+            Self::ProtectedParentRoute(protected_parent) => protected_parent.into_child_tokens(view),
+            Self::None => None
+        }
+    }
+}
+
+fn default_view_suffix() -> String {
+    "View".to_string()
+}
+
+pub trait FromVariantWithKind: Sized {
+    fn attr_ident() -> &'static str;
+    fn into_kind(self) -> RouteKind;
+}
+
+// Implement for each variant type
+impl FromVariantWithKind for RouteVariant {
+    fn attr_ident() -> &'static str { "route" }
+    fn into_kind(self) -> RouteKind { RouteKind::Route(self) }
+}
+
+impl FromVariantWithKind for ParentRouteVariant {
+    fn attr_ident() -> &'static str { "parent_route" }
+    fn into_kind(self) -> RouteKind { RouteKind::ParentRoute(self) }
+}
+
+impl FromVariantWithKind for ProtectedRouteVariant {
+    fn attr_ident() -> &'static str { "protected_route" }
+    fn into_kind(self) -> RouteKind { RouteKind::ProtectedRoute(self) }
+}
+
+impl FromVariantWithKind for ProtectedParentRouteVariant {
+    fn attr_ident() -> &'static str { "protected_parent_route" }
+    fn into_kind(self) -> RouteKind { RouteKind::ProtectedParentRoute(self) }
+}
+
+
+macro_rules! try_parse_variants {
+    ($variant:expr, $($T:ty),+) => {{
+        let mut found = None;
+        $(
+            if $variant.attrs.iter().any(|attr| attr.path().is_ident(<$T>::attr_ident())) {
+                match <$T>::from_variant($variant) {
+                    Ok(parsed) => {
+                        if found.is_some() {
+                            return Err(multiple_route_error($variant));
+                        }
+                        found = Some(parsed.into_kind());
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        )+
+        found
+    }};
+}
+
+
+/* -------------------------------------------------------------------------------------------------
+ * RouteKind
+ * -----------------------------------------------------------------------------------------------*/
+
+#[derive(std::fmt::Debug)]
+enum RouteKind {
+    Route(RouteVariant),
+    ParentRoute(ParentRouteVariant),
+    ProtectedRoute(ProtectedRouteVariant),
+    ProtectedParentRoute(ProtectedParentRouteVariant),
+    None,
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * `#[derive(Routable)]` implementation
+ * -----------------------------------------------------------------------------------------------*/
 pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     let mut input_ast = parse_macro_input!(input as DeriveInput);
-
-    // Only valid on enum
-    let enum_data = match input_ast.data {
+    let config = match RoutableConfiguration::from_derive_input(&input_ast) {
+        Ok(config) => config,
+        Err(err) => return err.write_errors().into(),
+    };
+    let data = match input_ast.data {
         Enum(ref e) => e,
         Struct(_) | Union(_) => {
             return syn::Error::new(
@@ -101,95 +254,28 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         }
     };
 
-    let routing_attrs = match RoutesAttrs::from_attributes(&mut input_ast.attrs) {
-        Ok(a) => a,
-        Err(err) => {
-            return syn::Error::new(
-                input_ast.span(),
-                format!("Error parsing `#[routes(...)]`: {}", err),
-            )
-                .into_compile_error()
-                .into();
-        }
-    };
-
-    let transition_tokens = if routing_attrs.transition {
-        quote!(true)
-    } else {
-        quote!(false)
-    };
-
-    let (routes_component, routes_props) = match routing_attrs.mode {
-        RoutingMode::Flat => (
-            quote! { ::leptos_router::components::FlatRoutes },
-            quote! { ::leptos_router::components::FlatRoutesProps },
-        ),
-        RoutingMode::Auto | RoutingMode::Nested => (
-            quote! { ::leptos_router::components::Routes },
-            quote! { ::leptos_router::components::RoutesProps },
-        ),
-    };
-
-    let enum_ident = &input_ast.ident;
-    let mut route_children = Vec::new();
-    let mut fallback_func = None::<TokenStream2>;
-    let mut extra_definitions = Vec::new();
-    let mut hooking_fn_references = Vec::new();
-
-    for variant in &enum_data.variants {
-        let var_ident = &variant.ident;
-        let enum_variant_str = format!("{}_{}", enum_ident, var_ident);
-        let registry_func_name = crate::utils::build_registry_func_name(&enum_variant_str);
-
-        // Determine the route kind
-        let route_kind = match parse_route_kind(variant) {
+    let mut children = Vec::new();
+    let mut fallback = None::<TokenStream2>;
+    for variant in &data.variants {
+        let view_ident = crate::utils::build_variant_view_name(&config.ident, &variant.ident, &config);
+        let route_kind = match parse_variant(variant) {
             Ok(kind) => kind,
-            Err(err) => return err.to_compile_error().into(),
+            Err(err) => return err.write_errors().into(),
         };
 
-        // If there's a path, we could verify its dynamic parameters, etc.
-        // parse_and_check_path_params(…) // not implemented fully here
-
-        // Parse fallback (only one allowed). If found, store or wrap it.
-        match parse_fallback_attrs(variant, input_ast.span(), &fallback_func) {
-            Ok(Some(fb_attrs)) => {
-                let path_str = match route_kind {
-                    RouteKind::Route(ref attr) => &attr.path,
-                    _ => panic!("")
-                };
-                let wrapped_name = syn::Ident::new(
-                    &format!("FallbackWrapped_{}_{}", enum_ident, var_ident),
-                    variant.span(),
-                );
-                // Building a fallback-wrapped component, or not
-                let fallback_def = build_wrapped_fallback_component(
-                    &wrapped_name,
-                    &registry_func_name,
-                    &path_str.clone().expect("Fallback expects path"), // TODO, fix logic
-                    &fb_attrs,
-                );
-                extra_definitions.push(fallback_def);
-                fallback_func = Some(quote! { || #wrapped_name() });
-            }
-            Ok(None) => {}
+        match parse_fallback_attrs(variant, input_ast.span(), &fallback) {
+            Ok(()) => { fallback = Some(quote! { #view_ident }); }
             Err(err) => return err.to_compile_error().into(),
         }
 
-        // Build the child route if it's some recognized route kind
-        if let Some(child_ts) = build_route_child(&route_kind, &registry_func_name) {
-            route_children.push(child_ts);
+        if let Some(kind) = route_kind {
+            if let Some(child_ts) = kind.into_child_tokens(view_ident) {
+                children.push(child_ts);
+            }
         }
-
-        // Force a reference to the hooking function
-        hooking_fn_references.push(quote_spanned! { variant.span()=>
-            const _: () = {
-                let _check = #registry_func_name;
-            };
-        });
     }
 
-    // If there's no fallback, that's an error in this logic
-    let fallback_tokens = match fallback_func {
+    let fallback = match fallback {
         Some(f) => f,
         None => {
             return syn::Error::new(
@@ -200,202 +286,201 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
                 .into();
         }
     };
+    let enum_ident = config.ident;
+    let transition = config.transition;
+    let routable_impl = quote! {
+        /* -----------------------------------------------------------------------------------------
+         * `Routable` implementation
+         * ---------------------------------------------------------------------------------------*/
+        impl Routable for #enum_ident {
 
-    // Build top-level Router component
-    let router_component = quote! {
-        #[::leptos::component]
-        pub fn #enum_ident() -> impl ::leptos::IntoView {
-            ::leptos_router::components::Router(
-                ::leptos_router::components::RouterProps::builder()
-                    .children(::leptos::children::ToChildren::to_children(move ||
-                        #routes_component(
-                            #routes_props::builder()
-                                .transition(#transition_tokens)
-                                .fallback(#fallback_tokens)
-                                .children(::leptos::children::ToChildren::to_children(move ||
-                                    (#(#route_children)*)
-                                ))
-                                .build()
+            /* -------------------------------------------------------------------------------------
+             * `FlatRoutes` implementation
+             * -----------------------------------------------------------------------------------*/
+            fn routes() -> impl ::leptos::IntoView {
+                ::leptos_router::components::Routes(
+                    ::leptos_router::components::RoutesProps::builder()
+                        .transition(#transition)
+                        .fallback(#fallback)
+                        .children(
+                            ::leptos::children::ToChildren::to_children(move || {
+                                (#(#children),*)
+                            })
                         )
-                    ))
-                    .build()
-            )
+                        .build()
+                )
+            }
+
+            /* -------------------------------------------------------------------------------------
+             * `FlatRoutes` implementation
+             * -----------------------------------------------------------------------------------*/
+            fn flat_routes() -> impl ::leptos::IntoView {
+                ::leptos_router::components::FlatRoutes(
+                    ::leptos_router::components::FlatRoutesProps::builder()
+                        .transition(#transition)
+                        .fallback(#fallback)
+                        .children(
+                            ::leptos::children::ToChildren::to_children(move || {
+                                (#(#children),*)
+                            })
+                        )
+                        .build()
+                )
+            }
+
+            /* -------------------------------------------------------------------------------------
+             * `Fallback` implementation
+             * -----------------------------------------------------------------------------------*/
+            fn fallback() -> impl ::leptos::IntoView {
+                #fallback
+            }
+
+            /* -------------------------------------------------------------------------------------
+             * `ParentRoute` implementation
+             * -----------------------------------------------------------------------------------*/
+            fn parent_route<
+                Path,
+                View,
+            >(
+                path: Path,
+                view: View,
+                ssr: ::leptos_router::SsrMode,
+            ) -> impl ::leptos_router::MatchNestedRoutes + Clone
+            where
+                Path: Send
+                    + Sync
+                    + 'static
+                    + Clone
+                    + std::fmt::Debug
+                    + ::leptos_router::PossibleRouteMatch,
+                View: ::leptos_router::ChooseView,
+            {
+                ::leptos_router::components::ParentRoute(
+                    ::leptos_router::components::ParentRouteProps::builder()
+                        .path(path)
+                        .view(view)
+                        .ssr(ssr)
+                        .children(
+                            ::leptos::children::ToChildren::to_children(move || {
+                                (#(#children),*)
+                            })
+                        )
+                        .build()
+                )
+            }
+
+            /* -------------------------------------------------------------------------------------
+             * `ProtectedParentRoute` implementation
+             * -----------------------------------------------------------------------------------*/
+            fn protected_parent_route<
+                Path,
+                View,
+                ViewFn,
+                ConditionFn,
+                RedirectPathFn,
+                RedirectPath,
+            >(
+                path: Path,
+                view: ViewFn,
+                condition: ConditionFn,
+                fallback: ::leptos::children::ViewFn,
+                redirect_path: RedirectPathFn,
+                ssr: ::leptos_router::SsrMode,
+            ) -> impl ::leptos_router::MatchNestedRoutes + Clone
+            where
+                Path: Send
+                    + Sync
+                    + 'static
+                    + Clone
+                    + std::fmt::Debug
+                    + ::leptos_router::PossibleRouteMatch,
+                ViewFn: Fn() -> View + Send + Clone + 'static,
+                View: ::leptos::IntoView + 'static,
+                ConditionFn: Fn() -> Option<bool> + Send + Clone + 'static,
+                RedirectPathFn: Fn() -> RedirectPath + Send + Clone + 'static,
+                RedirectPath: ::std::fmt::Display + 'static,
+            {
+                ::leptos_router::components::ProtectedParentRoute(
+                    ::leptos_router::components::ProtectedParentRouteProps::builder()
+                        .path(path)
+                        .view(view)
+                        .condition(condition)
+                        .fallback(fallback)
+                        .redirect_path(redirect_path)
+                        .children(
+                            ::leptos::children::ToChildren::to_children(move || {
+                                (#(#children),*)
+                            })
+                        )
+                        .ssr(ssr)
+                        .build()
+                )
+            }
         }
     };
 
     let expanded = quote! {
-        #(#hooking_fn_references)*
-        #(#extra_definitions)*
-        #router_component
+        #routable_impl
     };
-
-    crate::utils::format_generated_code(expanded).into()
+    expanded.into()
 }
 
-// not implemented fully:
-fn parse_route_kind(variant: &syn::Variant) -> syn::Result<RouteKind> {
-    // Minimal stub
-    let mut found: Option<RouteKind> = None;
-
-    if variant.attrs.iter().any(|attr| attr.path().is_ident("route")) {
-        let route_attrs = RouteAttrs::from_attributes(&variant.attrs)?;
-        if let Some(path) = &route_attrs.path {
-            if !path.is_empty() {
-                if found.is_some() {
-                    return Err(multiple_route_error(variant));
-                }
-                found = Some(RouteKind::Route(route_attrs));
-            }
-        }
-    }
-
-    if variant
-        .attrs
-        .iter()
-        .any(|attr| attr.path().is_ident("parent_route"))
-    {
-        let parent_attrs = ParentRouteAttrs::from_attributes(&variant.attrs)?;
-        if let Some(path) = &parent_attrs.path {
-            if !path.is_empty() {
-                if found.is_some() {
-                    return Err(multiple_route_error(variant));
-                }
-                found = Some(RouteKind::ParentRoute(parent_attrs));
-            }
-        }
-    }
-
-    if variant
-        .attrs
-        .iter()
-        .any(|attr| attr.path().is_ident("protected_route"))
-    {
-        let prot_attrs = ProtectedRouteAttrs::from_attributes(&variant.attrs)?;
-        if let Some(path) = &prot_attrs.path {
-            if !path.is_empty() {
-                if found.is_some() {
-                    return Err(multiple_route_error(variant));
-                }
-                found = Some(RouteKind::ProtectedRoute(prot_attrs));
-            }
-        }
-    }
-
-    if variant
-        .attrs
-        .iter()
-        .any(|attr| attr.path().is_ident("protected_parent_route"))
-    {
-        let prot_par_attrs = ProtectedParentRouteAttrs::from_attributes(&variant.attrs)?;
-        if let Some(path) = &prot_par_attrs.path {
-            if !path.is_empty() {
-                if found.is_some() {
-                    return Err(multiple_route_error(variant));
-                }
-                found = Some(RouteKind::ProtectedParentRoute(prot_par_attrs));
-            }
-        }
-    }
-
-    Ok(found.unwrap_or(RouteKind::None))
+/* -------------------------------------------------------------------------------------------------
+ * Parse Route Kind
+ * -----------------------------------------------------------------------------------------------*/
+fn parse_variant(variant: &syn::Variant) -> Result<Option<RouteKind>, darling::Error> {
+    Ok(try_parse_variants!(
+        variant,
+        RouteVariant,
+        ParentRouteVariant,
+        ProtectedRouteVariant,
+        ProtectedParentRouteVariant
+    ))
 }
 
-fn multiple_route_error(variant: &syn::Variant) -> syn::Error {
+fn multiple_route_error(variant: &syn::Variant) -> darling::Error {
     syn::Error::new(
         variant.span(),
-        "Multiple route-like attributes found on this variant. \
-         Only one of `#[route]`, `#[parent_route]`, `#[protected_route]`, \
-         or `#[protected_parent_route]` is allowed.",
-    )
+        "Multiple route-like attributes found. Only one of `#[route]`, `#[parent_route]`, \
+         `#[protected_route]`, or `#[protected_parent_route]` is allowed.",
+    ).into()
 }
 
-// not implemented fully:
-fn build_route_child(kind: &RouteKind, registry_func_name: &syn::Ident) -> Option<TokenStream2> {
-    match kind {
-        RouteKind::None => None,
-        RouteKind::Route(attrs) => {
-            let path_str = attrs.path.as_deref().unwrap_or_default();
-            Some(quote! {
-                ::leptos_router::components::Route(
-                    ::leptos_router::components::RouteProps::builder()
-                        .path(::leptos_router::path!(#path_str))
-                        .view(#registry_func_name)
-                        .build()
-                ),
-            })
-        }
-        RouteKind::ParentRoute(attrs) => {
-            let path_str = attrs.path.as_deref().unwrap_or_default();
-            Some(quote! {
-                ::leptos_router::components::ParentRoute(
-                    ::leptos_router::components::ParentRouteProps::builder()
-                        .path(::leptos_router::path!(#path_str))
-                        .view(#registry_func_name)
-                        .children(::leptos::children::ToChildren::to_children(move || {
-                            // child route(s) could go here
-                            ()
-                        }))
-                        .build()
-                ),
-            })
-        }
-        RouteKind::ProtectedRoute(attrs) => {
-            let path_str = attrs.path.as_deref().unwrap_or("");
-            let condition_str = attrs.condition.as_deref().unwrap_or("");
-            let redirect_path_str = attrs.redirect_path.as_deref().unwrap_or("/");
-            let fallback_str = attrs.fallback.as_deref().unwrap_or("|| ()");
-
-            Some(quote! {
-                ::leptos_router::components::ProtectedRoute(
-                    ::leptos_router::components::ProtectedRouteProps::builder()
-                        .path(::leptos_router::path!(#path_str))
-                        .view(#registry_func_name)
-                        .condition(::leptos::callback::Callback::new(move |_| {
-                            #condition_str()
-                        }))
-                        .redirect_path(::leptos::callback::Callback::new(move |_| {
-                            format!("{}", #redirect_path_str)
-                        }))
-                        .fallback(::leptos::children::ViewFn::new(#fallback_str))
-                        .build()
-                ),
-            })
-        }
-        RouteKind::ProtectedParentRoute(attrs) => {
-            let path_str = attrs.path.as_deref().unwrap_or("");
-            let condition_str = attrs.condition.as_deref().unwrap_or("");
-            let redirect_path_str = attrs.redirect_path.as_deref().unwrap_or("/");
-            let fallback_str = attrs.fallback.as_deref().unwrap_or("|| ()");
-
-            Some(quote! {
-                ::leptos_router::components::ProtectedParentRoute(
-                    ::leptos_router::components::ProtectedParentRouteProps::builder()
-                        .path(::leptos_router::path!(#path_str))
-                        .view(#registry_func_name)
-                        .condition(::leptos::callback::Callback::new(move |_| {
-                            #condition_str()
-                        }))
-                        .redirect_path(::leptos::callback::Callback::new(move |_| {
-                            format!("{}", #redirect_path_str)
-                        }))
-                        .fallback(::leptos::children::ViewFn::new(#fallback_str))
-                        .children(::leptos::children::ToChildren::to_children(move || {
-                            // child route(s) could go here
-                            ()
-                        }))
-                        .build()
-                ),
-            })
+fn parse_dynamic_segments(path: &str, variant: &Variant) -> Vec<(String, Box<Type>)> {
+    let field_types = collect_named_fields(variant);
+    let mut segments = Vec::new();
+    for seg in path.split('/') {
+        if let Some(field_name) = seg.strip_prefix(':') {
+            let field_name = field_name.trim().to_string();
+            if !field_name.is_empty() {
+                let ty = field_types
+                    .get(&field_name)
+                    .cloned()
+                    .unwrap_or_else(|| Box::new(syn::parse_str("String").unwrap()));
+                segments.push((field_name, ty));
+            }
         }
     }
+    segments
 }
 
-// not implemented fully:
+fn collect_named_fields(variant: &Variant) -> std::collections::HashMap<String, Box<Type>> {
+    let mut map = std::collections::HashMap::new();
+    if let Fields::Named(named_fields) = &variant.fields {
+        for field in &named_fields.named {
+            if let Some(ident) = &field.ident {
+                map.insert(ident.to_string(), Box::new(field.ty.clone()));
+            }
+        }
+    }
+    map
+}
+
 fn parse_fallback_attrs(
     variant: &syn::Variant,
     input_span: Span2,
     fallback_func: &Option<TokenStream2>,
-) -> syn::Result<Option<FallbackAttrs>> {
+) -> syn::Result<()> {
     let fallback_attrs: Vec<_> = variant
         .attrs
         .iter()
@@ -403,7 +488,7 @@ fn parse_fallback_attrs(
         .collect();
 
     if fallback_attrs.is_empty() {
-        return Ok(None);
+        return Ok(());
     }
     if fallback_attrs.len() > 1 {
         return Err(syn::Error::new(
@@ -412,18 +497,10 @@ fn parse_fallback_attrs(
         ));
     }
 
-    validate_single_fallback(input_span, fallback_func)?;
-
-    match FallbackAttrs::from_attributes(&variant.attrs) {
-        Ok(attrs) => Ok(Some(attrs)),
-        Err(err) => Err(syn::Error::new(
-            variant.span(),
-            format!("Error parsing `#[fallback]`: {}", err),
-        )),
-    }
+    // validate_single_fallback(input_span, fallback_func)?;
+    Ok(())
 }
 
-// not implemented fully:
 fn validate_single_fallback(
     input_span: Span2,
     fallback_func: &Option<TokenStream2>,
@@ -431,40 +508,8 @@ fn validate_single_fallback(
     if fallback_func.is_some() {
         return Err(syn::Error::new(
             input_span,
-            "`#[fallback]` may only be set on one variant of a `Routable` enum.",
+            "`#[fallback]` may only be set on one variant.",
         ));
     }
     Ok(())
-}
-
-// not implemented fully:
-fn build_wrapped_fallback_component(
-    wrapped_ident: &syn::Ident,
-    user_variant_ident: &syn::Ident,
-    path_str: &str,
-    fb: &FallbackAttrs,
-) -> TokenStream2 {
-    let replace = fb.replace.unwrap_or(false);
-    let resolve = fb.resolve.unwrap_or(false);
-
-    quote! {
-        #[::leptos::component]
-        pub fn #wrapped_ident() -> impl ::leptos::IntoView {
-            let user_view = #user_variant_ident();
-            ::leptos::prelude::Effect::new(move || {
-                // not implemented: fallback behavior (navigate, etc.)
-                let navigate = ::leptos_router::hooks::use_navigate();
-                navigate(
-                    #path_str,
-                    ::leptos_router::NavigateOptions {
-                        resolve: #resolve,
-                        replace: #replace,
-                        scroll: true,
-                        state: ::leptos_router::location::State::new(None),
-                    }
-                );
-            });
-            user_view
-        }
-    }
 }

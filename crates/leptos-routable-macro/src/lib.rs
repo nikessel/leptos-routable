@@ -1,19 +1,15 @@
 #![allow(clippy::needless_return)]
 extern crate proc_macro;
-
-use proc_macro::TokenStream;
-mod derive_routable;
-mod route_component;
+pub(crate) mod derive_routable;
+pub(crate) mod derive_to_href;
 pub(crate) mod utils;
 
-// Public macro entry point for `#[derive(Routable)]`
-#[proc_macro_derive(Routable, attributes(route, fallback))]
-pub fn derive_routable(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(Routable, attributes(route, fallback, routes, protected_route, parent_route, protected_parent_route))]
+pub fn derive_routable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     derive_routable::derive_routable_impl(input)
 }
 
-// Public macro entry point for `#[route_component(...)]`
-#[proc_macro_attribute]
-pub fn route_component(attr: TokenStream, item: TokenStream) -> TokenStream {
-    route_component::route_component_impl(attr, item)
+#[proc_macro_derive(ToHref, attributes(route))]
+pub fn derive_to_path(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    derive_to_href::derive_to_href_impl(input)
 }
