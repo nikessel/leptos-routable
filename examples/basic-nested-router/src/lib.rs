@@ -8,8 +8,25 @@ use crate::dashboard::{DashboardRoutes, DashboardView};
 use crate::admin::{AdminRoutes, AdminView};
 use leptos_routable::prelude::combine_paths;
 
+#[derive(Clone)]
+pub struct AuthContext {
+    pub is_logged_in: ReadSignal<bool>,
+    pub set_logged_in: WriteSignal<bool>,
+}
+
+#[component]
+pub fn AuthProvider(children: Children) -> impl IntoView {
+    let (is_logged_in, set_logged_in) = signal(false);
+    provide_context(AuthContext { is_logged_in, set_logged_in });
+    children()
+}
+
 fn get_auth_redirect_path() -> AppRoutes {
     AppRoutes::Login
+}
+
+fn get_auth_condition() -> Option<bool> {
+    Some(expect_context::<AuthContext>().is_logged_in.get())
 }
 
 #[derive(Routable, ToHref)]
@@ -21,46 +38,37 @@ fn get_auth_redirect_path() -> AppRoutes {
 pub enum AppRoutes {
     #[route(path = "/")]
     Home,
-
     #[route(path = "/contact")]
     Contact,
-
     #[route(path = "/asset")]
     AssetList,
-
     #[route(path = "/asset/:id")]
     AssetDetails {
         id: u64,
         action: Option<String>,
     },
-
     #[protected_route(
         path = "/profile",
-        condition = "|| Some(true)",
+        condition = "get_auth_condition",
         redirect_path = "get_auth_redirect_path",
         fallback = "NotFoundView"
     )]
     Profile,
-
     #[route(path = "/login")]
     Login,
-
     #[parent_route(
         path = "/dashboard",
         ssr = "::leptos_router::SsrMode::default()"
     )]
     Dashboard(DashboardRoutes),
-
     #[protected_parent_route(
         path = "/admin",
-        condition = "|| Some(false)",
+        condition = "get_auth_condition",
         redirect_path = "get_auth_redirect_path",
         fallback = "NotFoundView",
         ssr = "::leptos_router::SsrMode::default()"
     )]
     Admin(AdminRoutes),
-
-    // Fallback at the top level
     #[fallback]
     #[route(path = "/404")]
     NotFound,
@@ -68,23 +76,20 @@ pub enum AppRoutes {
 
 #[component]
 pub fn LoginView() -> impl IntoView {
-    let (logged_in, set_logged_in) = create_signal(false);
+    let auth = expect_context::<AuthContext>();
     let navigate = leptos_router::hooks::use_navigate();
-
     let login = Callback::<()>::new(move |_| {
-        set_logged_in(true);
+        auth.set_logged_in.set(true);
         navigate(&*AppRoutes::Profile.to_string(), Default::default());
     });
-
     let logout = Callback::<()>::new(move |_| {
-        set_logged_in(false);
+        auth.set_logged_in.set(false);
     });
-
     view! {
         <div class="p-4 text-center">
             <h1 class="text-2xl font-bold mb-4">"Login"</h1>
             <Show
-                when=logged_in
+                when=auth.is_logged_in
                 fallback= move || view! {
                     <div class="space-y-4">
                         <p class="text-gray-600">"You need to login to access protected routes."</p>
@@ -107,12 +112,8 @@ pub fn LoginView() -> impl IntoView {
                     </button>
                 </div>
             </Show>
-
             <div class="mt-4">
-                <A
-                    href=AppRoutes::Home
-                    attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
-                >
+                <A href=AppRoutes::Home attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded">
                     "Back Home"
                 </A>
             </div>
@@ -178,7 +179,6 @@ pub fn AssetListView() -> impl IntoView {
                         "→ 404 Page"
                     </A>
                 </div>
-
                 <div class="mt-4 p-4 rounded">
                     <p class="text-sm font-mono">
                         "Current Path: "
@@ -197,7 +197,6 @@ pub fn AssetListView() -> impl IntoView {
 #[component]
 pub fn AssetDetailsView() -> impl IntoView {
     let id = MaybeParam::<u64>::new("id").ok();
-
     let prev_href = move || {
         AppRoutes::AssetDetails {
             id: id.get().unwrap_or_default().saturating_sub(1),
@@ -205,7 +204,6 @@ pub fn AssetDetailsView() -> impl IntoView {
         }
             .to_string()
     };
-
     let next_href = move || {
         AppRoutes::AssetDetails {
             id: id.get().unwrap_or_default() + 1,
@@ -213,13 +211,11 @@ pub fn AssetDetailsView() -> impl IntoView {
         }
             .to_string()
     };
-
     view! {
         <div class="flex flex-col items-center p-4 space-y-4">
             <h1 class="text-2xl font-bold">
                 { move || format!("Asset ID: {}", id.get().unwrap_or_default()) }
             </h1>
-
             <div class="flex space-x-4">
                 <A href=AppRoutes::Home attr:class="px-4 py-2 bg-green-500 text-white rounded">
                     "Home"
@@ -273,13 +269,11 @@ pub fn NotFoundView() -> impl IntoView {
 #[component]
 pub fn App() -> impl IntoView {
     leptos_meta::provide_meta_context();
-
     view! {
         <Html attr:lang="en" attr:dir="ltr" />
         <Title text="Welcome to Leptos CSR" />
         <Meta charset="UTF-8" />
         <Meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
         <main class="min-h-screen">
             <Router>
                 <nav class="flex space-x-4 p-4 bg-gray-900 text-white">
@@ -296,7 +290,9 @@ pub fn App() -> impl IntoView {
                         "Admin"
                     </A>
                 </nav>
-                {move || AppRoutes::routes()}
+                <AuthProvider>
+                    {move || AppRoutes::routes()}
+                </AuthProvider>
             </Router>
         </main>
     }
