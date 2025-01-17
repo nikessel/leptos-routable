@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span as Span2, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{parse_macro_input, spanned::Spanned, Data::{Enum, Struct, Union}, DeriveInput, Ident, Type, Variant, Fields};
-use darling::{ FromDeriveInput, FromVariant};
+use darling::{FromDeriveInput, FromVariant};
 
 trait IntoChildTokens {
     fn into_child_tokens(self, view: Ident) -> Option<TokenStream2>;
