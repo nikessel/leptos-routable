@@ -1,120 +1,8 @@
-use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse_macro_input, spanned::Spanned, Attribute, Data, DeriveInput, Error, Fields, Ident, LitStr,
+    spanned::Spanned, Attribute, Error, Fields, Ident, LitStr,
     Type, Variant,
 };
-
-/// Derive macro that implements `ToHref` for an enum.
-/// Checks for `#[route(path="...")]` or `#[parent_route(path="...")]`.
-/// If exactly one unnamed field is present, we treat it as nested.
-pub fn derive_to_href_impl(input: TokenStream) -> TokenStream {
-    let ast = parse_macro_input!(input as DeriveInput);
-    let Data::Enum(data_enum) = ast.data else {
-        return syn::Error::new_spanned(ast, "`#[derive(ToHref)]` can only be used on an enum.")
-            .to_compile_error()
-            .into();
-    };
-
-    let enum_ident = &ast.ident;
-    let mut match_arms = Vec::new();
-    let mut errors = Vec::new();
-
-    for variant in data_enum.variants {
-        match process_variant(enum_ident, variant) {
-            Ok(Some(ts)) => match_arms.push(ts),
-            Ok(None) => (),
-            Err(e) => errors.push(e),
-        }
-    }
-
-    if !errors.is_empty() {
-        let mut combined = proc_macro2::TokenStream::new();
-        for e in errors {
-            combined.extend(e.to_compile_error());
-        }
-        return combined.into();
-    }
-
-    let fallback_arm = quote! {
-        _ => "/".to_string()
-    };
-
-    let expanded = quote! {
-        impl std::fmt::Display for #enum_ident {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", match self {
-                    #( #match_arms, )*
-                    #fallback_arm
-                })
-            }
-        }
-
-        impl ::leptos_router::components::ToHref for #enum_ident {
-            fn to_href(&self) -> Box<dyn Fn() -> String + '_> {
-                let owned_self = self.clone();
-                Box::new(move || {
-                    match &owned_self {
-                        #( #match_arms, )*
-                        #fallback_arm
-                    }
-                })
-            }
-        }
-    };
-
-    expanded.into()
-}
-
-fn process_variant(
-    enum_ident: &Ident,
-    variant: Variant,
-) -> syn::Result<Option<proc_macro2::TokenStream>> {
-    let Variant { ident, fields, attrs, .. } = variant;
-
-    let route_path = match find_route_path(&attrs) {
-        Some(p) if !p.is_empty() => p,
-        _ => {
-            // If no route attribute but exactly 1 unnamed field => nested
-            if let Fields::Unnamed(unnamed) = &fields {
-                if unnamed.unnamed.len() == 1 {
-                    let pat = quote!( #enum_ident::#ident(nested) );
-                    return Ok(Some(quote! {
-                        #pat => nested.to_string()
-                    }));
-                }
-            }
-            return Ok(None);
-        }
-    };
-
-    let field_infos = extract_variant_fields(enum_ident, &ident, &fields)?;
-    validate_path_and_fields(&route_path, &field_infos, &fields, &ident)?;
-    let (variant_pat, fields_for_build) = build_variant_pattern(enum_ident, &ident, &fields)?;
-    let build_code = generate_path_builder(&route_path, &fields_for_build);
-
-    // If exactly 1 unnamed field => prefix + nested
-    if let Fields::Unnamed(unnamed) = &fields {
-        if unnamed.unnamed.len() == 1 {
-            return Ok(Some(quote! {
-                #variant_pat => {
-                    let prefix_str = {
-                        #build_code
-                    };
-                    let nested_str = _0.to_string();
-                    combine_paths(&prefix_str, &nested_str)
-                }
-            }));
-        }
-    }
-
-    // Normal case
-    Ok(Some(quote! {
-        #variant_pat => {
-            #build_code
-        }
-    }))
-}
 
 struct FieldMeta {
     name: String,
@@ -393,3 +281,80 @@ fn find_route_path(attrs: &[Attribute]) -> Option<String> {
     }
     None
 }
+
+pub(crate) fn generate_to_href_display_impl(
+    enum_ident: &syn::Ident,
+    data: &syn::DataEnum,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let mut match_arms = Vec::new();
+
+    for variant in &data.variants {
+        let Variant { ident, fields, attrs, .. } = variant;
+        let route_path = match find_route_path(attrs) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                if let Fields::Unnamed(unnamed) = fields {
+                    if unnamed.unnamed.len() == 1 {
+                        let pat = quote!( #enum_ident::#ident(nested) );
+                        match_arms.push(quote! { #pat => nested.to_string() });
+                    }
+                }
+                continue;
+            }
+        };
+
+        let field_infos = extract_variant_fields(enum_ident, ident, fields)?;
+        validate_path_and_fields(&route_path, &field_infos, fields, ident)?;
+        let (variant_pat, fields_for_build) = build_variant_pattern(enum_ident, ident, fields)?;
+        let build_code = generate_path_builder(&route_path, &fields_for_build);
+
+        // If exactly one unnamed field, prefix + nested
+        if let Fields::Unnamed(unnamed) = fields {
+            if unnamed.unnamed.len() == 1 {
+                match_arms.push(quote! {
+                    #variant_pat => {
+                        let prefix_str = { #build_code };
+                        let nested_str = _0.to_string();
+                        combine_paths(&prefix_str, &nested_str)
+                    }
+                });
+                continue;
+            }
+        }
+
+        match_arms.push(quote! {
+            #variant_pat => {
+                #build_code
+            }
+        });
+    }
+
+    let fallback_arm = quote! {
+        _ => "/".to_string()
+    };
+
+    let impl_ts = quote! {
+        impl std::fmt::Display for #enum_ident {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", match self {
+                    #( #match_arms, )*
+                    #fallback_arm
+                })
+            }
+        }
+
+        impl ::leptos_router::components::ToHref for #enum_ident {
+            fn to_href(&self) -> Box<dyn Fn() -> String + '_> {
+                let owned_self = self.clone();
+                Box::new(move || {
+                    match &owned_self {
+                        #( #match_arms, )*
+                        #fallback_arm
+                    }
+                })
+            }
+        }
+    };
+    Ok(impl_ts)
+}
+

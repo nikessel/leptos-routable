@@ -2,7 +2,7 @@ mod dashboard;
 mod admin;
 use leptos::prelude::*;
 use leptos_meta::{Html, Meta, Title};
-use leptos_routable::prelude::{MaybeParam, Routable, ToHref};
+use leptos_routable::prelude::{MaybeParam, Routable};
 use leptos_router::components::{Router, A};
 use crate::dashboard::{DashboardRoutes, DashboardView};
 use crate::admin::{AdminRoutes, AdminView};
@@ -29,7 +29,7 @@ fn get_auth_condition() -> Option<bool> {
     Some(expect_context::<AuthContext>().is_logged_in.get())
 }
 
-#[derive(Routable, ToHref)]
+#[derive(Routable)]
 #[routes(
     view_prefix = "",
     view_suffix = "View",

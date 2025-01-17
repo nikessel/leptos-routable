@@ -4,7 +4,7 @@ use leptos_routable::prelude::*;
 use leptos_router::components::Outlet;
 use crate::AppRoutes;
 
-#[derive(Routable, ToHref)]
+#[derive(Routable)]
 #[routes(transition = false)]
 pub enum DashboardRoutes {
     #[route(path = "")]

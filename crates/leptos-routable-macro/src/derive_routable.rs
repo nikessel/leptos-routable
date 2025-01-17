@@ -421,8 +421,14 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         }
     };
 
+    let to_href_display_impl = match crate::to_href_display::generate_to_href_display_impl(&enum_ident, data) {
+        Ok(ts) => ts,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
     let expanded = quote! {
         #routable_impl
+        #to_href_display_impl
     };
     expanded.into()
 }

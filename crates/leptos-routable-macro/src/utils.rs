@@ -31,3 +31,4 @@ pub(crate) fn build_variant_view_name(
     // Convert to syn::Ident, preserving the original span
     syn::Ident::new(&full_name, variant_ident.span())
 }
+

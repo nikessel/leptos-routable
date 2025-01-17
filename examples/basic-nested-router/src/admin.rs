@@ -1,9 +1,9 @@
 use leptos::prelude::*;
-use leptos_routable::prelude::{Routable, ToHref};
+use leptos_routable::prelude::Routable;
 use leptos_router::components::{Outlet, A};
 use crate::AppRoutes;
 
-#[derive(Routable, ToHref)]
+#[derive(Routable)]
 #[routes(
     view_prefix = "",
     view_suffix = "View",
