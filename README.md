@@ -54,13 +54,13 @@ pub fn App() -> impl IntoView {
 
 - **`AppRoutes::Dashboard(DashboardRoutes::DashboardHome)`**  
   Leptos generates a properly nested URL—`/dashboard`—with no extra string typing.
-- **`DashboardRoutes::DashboardSettings`**  
+- **`AppRoutes::Dashboard(DashboardRoutes::DashboardSettings)`**  
   Expands the route to `/dashboard/settings`.
 
 ## Highlighted Features
 
 - **Easy Route Definitions**  
-  `#[derive(Routable)]` handles URL generation and route matching in one neat enum.
+  `#[derive(Routable)]` handles URL generation and leptos component generation in one neat enum.
 - **Nested Paths**  
   Group your routes under parent routes (e.g., `/dashboard`) and define child routes for a cleaner structure.
 - **Zero-String Linking**  
