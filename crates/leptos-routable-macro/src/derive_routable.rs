@@ -1,9 +1,8 @@
 use proc_macro::TokenStream;
-use std::str::FromStr;
 use proc_macro2::{Span as Span2, TokenStream as TokenStream2};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::quote;
 use syn::{parse_macro_input, spanned::Spanned, Data::{Enum, Struct, Union}, DeriveInput, Ident, Type, Variant, Fields};
-use darling::{FromAttributes, FromDeriveInput, FromMeta, FromVariant};
+use darling::{ FromDeriveInput, FromVariant};
 
 trait IntoChildTokens {
     fn into_child_tokens(self, view: Ident) -> Option<TokenStream2>;
@@ -14,9 +13,9 @@ trait IntoChildTokens {
  * -----------------------------------------------------------------------------------------------*/
 #[derive(std::fmt::Debug, FromVariant)]
 #[darling(attributes(route))]
-pub struct RouteVariant {
-    ident: Ident,
-    fields: darling::ast::Fields<syn::Type>,
+struct RouteVariant {
+    #[allow(unused)] ident: Ident,
+    #[allow(unused)] fields: darling::ast::Fields<syn::Type>,
 
     // Arguments
     path: syn::LitStr,
@@ -40,10 +39,10 @@ impl IntoChildTokens for RouteVariant {
  * -----------------------------------------------------------------------------------------------*/
 #[derive(std::fmt::Debug, FromVariant)]
 #[darling(attributes(parent_route))]
-pub struct ParentRouteVariant {
-    ident: Ident,
+struct ParentRouteVariant {
+    #[allow(unused)] ident: Ident,
     fields: darling::ast::Fields<syn::Type>,
-    routable: Option<Ident>,
+    #[allow(unused)] routable: Option<Ident>,
 
     // Arguments
     path: syn::LitStr,
@@ -65,9 +64,9 @@ impl IntoChildTokens for ParentRouteVariant {
  * -----------------------------------------------------------------------------------------------*/
 #[derive(std::fmt::Debug, FromVariant)]
 #[darling(attributes(protected_route))]
-pub struct ProtectedRouteVariant {
-    ident: Ident,
-    fields: darling::ast::Fields<syn::Type>,
+struct ProtectedRouteVariant {
+    #[allow(unused)] ident: Ident,
+    #[allow(unused)] fields: darling::ast::Fields<syn::Type>,
 
     // Arguments
     path: syn::LitStr,
@@ -101,8 +100,8 @@ impl IntoChildTokens for ProtectedRouteVariant {
  * -----------------------------------------------------------------------------------------------*/
 #[derive(std::fmt::Debug, FromVariant)]
 #[darling(attributes(protected_parent_route))]
-pub struct ProtectedParentRouteVariant {
-    ident: Ident,
+struct ProtectedParentRouteVariant {
+    #[allow(unused)] ident: Ident,
     fields: darling::ast::Fields<syn::Type>,
 
     // Arguments
@@ -131,6 +130,7 @@ impl IntoChildTokens for ProtectedParentRouteVariant {
  * -----------------------------------------------------------------------------------------------*/
 #[derive(std::fmt::Debug, FromVariant)]
 #[darling(attributes(fallback))]
+#[allow(unused)]
 pub struct StandaloneFallbackVariant {
     ident: Ident,
     discriminant: Option<syn::Expr>,
@@ -144,6 +144,7 @@ pub struct StandaloneFallbackVariant {
 #[darling(attributes(routes), supports(enum_any))]
 pub(crate) struct RoutableConfiguration {
     ident: syn::Ident,
+    #[allow(unused)]
     attrs: Vec<syn::Attribute>,
 
     #[darling(default)]
@@ -172,7 +173,7 @@ fn default_view_suffix() -> String {
     "View".to_string()
 }
 
-pub trait FromVariantWithKind: Sized {
+trait FromVariantWithKind: Sized {
     fn attr_ident() -> &'static str;
     fn into_kind(self) -> RouteKind;
 }
@@ -225,6 +226,7 @@ macro_rules! try_parse_variants {
  * -----------------------------------------------------------------------------------------------*/
 
 #[derive(std::fmt::Debug)]
+#[allow(unused)]
 enum RouteKind {
     Route(RouteVariant),
     ParentRoute(ParentRouteVariant),
@@ -237,7 +239,7 @@ enum RouteKind {
  * `#[derive(Routable)]` implementation
  * -----------------------------------------------------------------------------------------------*/
 pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
-    let mut input_ast = parse_macro_input!(input as DeriveInput);
+    let input_ast = parse_macro_input!(input as DeriveInput);
     let config = match RoutableConfiguration::from_derive_input(&input_ast) {
         Ok(config) => config,
         Err(err) => return err.write_errors().into(),
@@ -446,6 +448,7 @@ fn multiple_route_error(variant: &syn::Variant) -> darling::Error {
     ).into()
 }
 
+#[allow(unused)]
 fn parse_dynamic_segments(path: &str, variant: &Variant) -> Vec<(String, Box<Type>)> {
     let field_types = collect_named_fields(variant);
     let mut segments = Vec::new();
@@ -478,8 +481,8 @@ fn collect_named_fields(variant: &Variant) -> std::collections::HashMap<String, 
 
 fn parse_fallback_attrs(
     variant: &syn::Variant,
-    input_span: Span2,
-    fallback_func: &Option<TokenStream2>,
+    _input_span: Span2,
+    _fallback_func: &Option<TokenStream2>,
 ) -> syn::Result<()> {
     let fallback_attrs: Vec<_> = variant
         .attrs
@@ -501,6 +504,7 @@ fn parse_fallback_attrs(
     Ok(())
 }
 
+#[allow(unused)]
 fn validate_single_fallback(
     input_span: Span2,
     fallback_func: &Option<TokenStream2>,

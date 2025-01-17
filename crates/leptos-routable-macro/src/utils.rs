@@ -1,4 +1,4 @@
-use syn::{parse2, spanned::Spanned, File};
+use syn::{parse2, File};
 use proc_macro2::{TokenStream as TokenStream2};
 use prettyplease::unparse;
 
@@ -18,7 +18,7 @@ pub(crate) fn build_variant_view_name(
     variant_ident: &syn::Ident,
     config: &crate::derive_routable::RoutableConfiguration
 ) -> syn::Ident {
-    let mut name = variant_ident.to_string();
+    let name = variant_ident.to_string();
 
     // Add prefix and suffix
     let full_name = format!(

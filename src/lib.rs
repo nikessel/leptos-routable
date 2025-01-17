@@ -1,8 +1,4 @@
 use std::fmt::Debug;
-use leptos_router::{ChooseView, MatchNestedRoutes, NestedRoute};
-
-#[cfg(feature = "hook-extensions")]
-mod hook_extensions;
 mod maybe_param;
 mod combine_paths;
 
@@ -61,8 +57,6 @@ pub trait Routable {
 
 
 pub mod prelude {
-    #[cfg(feature = "hook-extensions")]
-    pub use super::hook_extensions::*;
     pub use leptos_routable_macro::*;
     pub use crate::maybe_param::*;
     pub use super::Routable;
