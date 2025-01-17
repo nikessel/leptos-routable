@@ -1,7 +1,6 @@
 use leptos::prelude::*;
-use leptos_router::{path, components::{Router, A}, hooks::use_location};
+use leptos_router::{components::A, hooks::use_location};
 use leptos_routable::prelude::*;
-use std::fmt::Debug;
 use leptos_router::components::Outlet;
 use crate::AppRoutes;
 
@@ -28,12 +27,16 @@ pub fn DashboardHomeView() -> impl IntoView {
         <section class="p-4 text-center">
             <h1 class="text-2xl font-bold">"Dashboard Home"</h1>
             <p>"Welcome to the Dashboard!"</p>
-            <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardSettings)
-               attr:class="inline-block px-4 py-2 bg-blue-600 text-white rounded mt-2">
+            <A
+                href=AppRoutes::Dashboard(DashboardRoutes::DashboardSettings)
+                attr:class="inline-block px-4 py-2 bg-blue-600 text-white rounded mt-2"
+            >
                 "Go to Settings"
             </A>
-            <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardAnalytics)
-               attr:class="inline-block px-4 py-2 bg-blue-600 text-white rounded mt-2 ml-2">
+            <A
+                href=AppRoutes::Dashboard(DashboardRoutes::DashboardAnalytics)
+                attr:class="inline-block px-4 py-2 bg-blue-600 text-white rounded mt-2 ml-2"
+            >
                 "Go to Analytics"
             </A>
         </section>
@@ -46,8 +49,10 @@ pub fn DashboardSettingsView() -> impl IntoView {
         <section class="p-4 text-center">
             <h1 class="text-2xl font-bold">"Dashboard Settings"</h1>
             <p>"Configure your dashboard settings here."</p>
-            <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
-               attr:class="inline-block px-4 py-2 bg-green-600 text-white rounded mt-2">
+            <A
+                href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
+                attr:class="inline-block px-4 py-2 bg-green-600 text-white rounded mt-2"
+            >
                 "Back Home"
             </A>
         </section>
@@ -60,8 +65,10 @@ pub fn DashboardAnalyticsView() -> impl IntoView {
         <section class="p-4 text-center">
             <h1 class="text-2xl font-bold">"Dashboard Analytics"</h1>
             <p>"Analytics overview."</p>
-            <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
-               attr:class="inline-block px-4 py-2 bg-green-600 text-white rounded mt-2">
+            <A
+                href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
+                attr:class="inline-block px-4 py-2 bg-green-600 text-white rounded mt-2"
+            >
                 "Back Home"
             </A>
         </section>
@@ -75,8 +82,10 @@ pub fn DashboardNotFoundView() -> impl IntoView {
         <section class="p-4 text-center">
             <h1 class="text-2xl font-bold">"Dashboard Route Not Found"</h1>
             <p>{move || format!("Path: {}", loc.pathname.get())}</p>
-            <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
-               attr:class="inline-block px-4 py-2 bg-green-600 text-white rounded mt-2">
+            <A
+                href=AppRoutes::Dashboard(DashboardRoutes::DashboardHome)
+                attr:class="inline-block px-4 py-2 bg-green-600 text-white rounded mt-2"
+            >
                 "Go to Dashboard Home"
             </A>
         </section>
@@ -85,8 +94,6 @@ pub fn DashboardNotFoundView() -> impl IntoView {
 
 #[component]
 pub fn DashboardView() -> impl IntoView {
-    view! {
-        <Outlet/>
-    }
+    view! { <Outlet /> }
 }
 

@@ -25,7 +25,10 @@ pub fn AdminHomeView() -> impl IntoView {
     view! {
         <div class="p-4 text-center">
             <h2 class="text-2xl font-bold">"Admin Dashboard"</h2>
-            <A href=AppRoutes::Admin(AdminRoutes::UserList) attr:class="inline-block px-4 py-2 mt-4 bg-blue-500 text-white rounded">
+            <A
+                href=AppRoutes::Admin(AdminRoutes::UserList)
+                attr:class="inline-block px-4 py-2 mt-4 bg-blue-500 text-white rounded"
+            >
                 "Manage Users"
             </A>
         </div>
@@ -54,7 +57,5 @@ pub fn AdminNotFoundView() -> impl IntoView {
 
 #[component]
 pub fn AdminView() -> impl IntoView {
-    view! {
-        <Outlet/>
-    }
+    view! { <Outlet /> }
 }
