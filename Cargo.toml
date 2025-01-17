@@ -10,6 +10,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+description = "Type-safe routing utility for Leptos with zero-string path generation"
 
 [workspace.dependencies]
 leptos-routable = { path = "./crates/leptos-routable" }
