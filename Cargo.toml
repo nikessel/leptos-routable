@@ -1,14 +1,20 @@
-[package]
-name = "leptos-routable"
+[workspace]
+members = [
+    "crates/leptos-routable-macro",
+    "crates/leptos-routable",
+    "examples/basic-flat-router",
+    "examples/basic-nested-router"
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = ["hook-extensions"]
-hook-extensions = []
-
-[dependencies]
-leptos-routable-macro = { path = "./crates/leptos-routable-macro" }
-leptos_router = "0.7.3"
-leptos = "0.7.3"
+[workspace.dependencies]
+leptos-routable = { path = "./crates/leptos-routable" }
+leptos = "0.7.4"
+leptos_router = "0.7.4"
+leptos_meta = "0.7.4"
 thiserror = "2.0.11"
+leptos-routable-macro = { path = "./crates/leptos-routable-macro" }

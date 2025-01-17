@@ -1,0 +1,10 @@
+[package]
+name = "leptos-routable"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leptos.workspace = true
+leptos_router.workspace = true
+leptos-routable-macro.workspace = true
+thiserror.workspace = true

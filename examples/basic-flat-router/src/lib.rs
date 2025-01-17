@@ -1,8 +1,6 @@
-use std::fmt::Debug;
 use leptos::prelude::{component, *};
 use leptos_meta::{Html, Meta, Title};
 use leptos_routable::prelude::*;
-use leptos_router::{path};
 use leptos_router::hooks::{use_location};
 use leptos_router::components::{Router, A};
 

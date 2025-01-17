@@ -7,10 +7,10 @@ authors = ["geoffreygarrett <geoffrey@apollo.xyz>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-leptos = { version = "0.7", features = ["csr", "nightly"] }
-leptos_meta = { version = "0.7" }
-leptos_router = { version = "0.7", features = ["nightly"] }
-leptos-routable = { path = "../.." }
+leptos = { workspace = true, features = ["csr", "nightly"] }
+leptos_meta.workspace = true
+leptos_router = { workspace = true, features = ["nightly"] }
+leptos-routable.workspace = true
 console_log = "1"
 log = "0.4"
 console_error_panic_hook = "0.1"
@@ -19,15 +19,7 @@ console_error_panic_hook = "0.1"
 # strum = { version = "0.25", features = ["derive", "strum_macros"] }
 # strum_macros = "0.25"
 
-
 [dev-dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-test = "0.3"
 web-sys = { version = "0.3", features = ["Document", "Window"] }
-
-
-[profile.release]
-opt-level = 'z'
-lto = true
-codegen-units = 1
-panic = "abort"
