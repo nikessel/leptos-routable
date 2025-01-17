@@ -74,14 +74,20 @@ pub fn AssetListView() -> impl IntoView {
                     </A>
 
                     <A
-                        href=AppRoutes::AssetDetails { id: 123, action: None }
+                        href=AppRoutes::AssetDetails {
+                            id: 123,
+                            action: None,
+                        }
                         attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
                     >
                         "→ Asset 123 (no action)"
                     </A>
 
                     <A
-                        href=AppRoutes::AssetDetails { id: 456, action: Some("edit".to_string()) }
+                        href=AppRoutes::AssetDetails {
+                            id: 456,
+                            action: Some("edit".to_string()),
+                        }
                         attr:class="inline-block px-4 py-2 bg-blue-500 text-white rounded"
                     >
                         "→ Asset 456 (edit action)"
@@ -104,12 +110,10 @@ pub fn AssetListView() -> impl IntoView {
 
                 <div class="mt-4 p-4 rounded">
                     <p class="text-sm font-mono">
-                        "Current Path: "
-                        {move || use_location().pathname}
+                        "Current Path: " {move || use_location().pathname}
                     </p>
                     <p class="text-sm font-mono">
-                        "Query String: "
-                        {move || use_location().search}
+                        "Query String: " {move || use_location().search}
                     </p>
                 </div>
             </div>
@@ -140,14 +144,11 @@ pub fn AssetDetailsView() -> impl IntoView {
     view! {
         <div class="flex flex-col items-center p-4 space-y-4">
             <h1 class="text-2xl font-bold">
-                { move || format!("Asset ID: {}", id.get().unwrap_or_default()) }
+                {move || format!("Asset ID: {}", id.get().unwrap_or_default())}
             </h1>
 
             <div class="flex space-x-4">
-                <A
-                    href=AppRoutes::Home
-                    attr:class="px-4 py-2 bg-green-500 text-white rounded"
-                >
+                <A href=AppRoutes::Home attr:class="px-4 py-2 bg-green-500 text-white rounded">
                     "Home"
                 </A>
 
@@ -159,10 +160,7 @@ pub fn AssetDetailsView() -> impl IntoView {
                     "Previous"
                 </A>
 
-                <A
-                    href=next_href
-                    attr:class="px-4 py-2 bg-blue-500 text-white rounded"
-                >
+                <A href=next_href attr:class="px-4 py-2 bg-blue-500 text-white rounded">
                     "Next"
                 </A>
             </div>
@@ -217,10 +215,27 @@ pub fn App() -> impl IntoView {
         <main class="min-h-screen">
             <Router>
                 <nav class="flex space-x-4 p-4 bg-gray-900 text-white">
-                    <A href=AppRoutes::Home attr:class="text-white px-3 py-1 bg-green-600 rounded">"Home"</A>
-                    <A href=AppRoutes::Contact attr:class="text-white px-3 py-1 bg-blue-600 rounded">"Contact"</A>
-                    <A href=AppRoutes::AssetList attr:class="text-white px-3 py-1 bg-blue-600 rounded">"Assets"</A>
-                    <A href=AppRoutes::Profile attr:class="text-white px-3 py-1 bg-blue-600 rounded">"Profile"</A>
+                    <A href=AppRoutes::Home attr:class="text-white px-3 py-1 bg-green-600 rounded">
+                        "Home"
+                    </A>
+                    <A
+                        href=AppRoutes::Contact
+                        attr:class="text-white px-3 py-1 bg-blue-600 rounded"
+                    >
+                        "Contact"
+                    </A>
+                    <A
+                        href=AppRoutes::AssetList
+                        attr:class="text-white px-3 py-1 bg-blue-600 rounded"
+                    >
+                        "Assets"
+                    </A>
+                    <A
+                        href=AppRoutes::Profile
+                        attr:class="text-white px-3 py-1 bg-blue-600 rounded"
+                    >
+                        "Profile"
+                    </A>
                 </nav>
 
                 {move || AppRoutes::routes()}

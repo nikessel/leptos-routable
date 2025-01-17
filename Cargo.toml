@@ -11,3 +11,4 @@ hook-extensions = []
 leptos-routable-macro = { path = "./crates/leptos-routable-macro" }
 leptos_router = "0.7.3"
 leptos = "0.7.3"
+thiserror = "2.0.11"
