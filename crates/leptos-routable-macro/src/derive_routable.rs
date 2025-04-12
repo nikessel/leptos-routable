@@ -144,8 +144,8 @@ pub struct StandaloneFallbackVariant {
 #[darling(attributes(routes), supports(enum_any))]
 pub(crate) struct RoutableConfiguration {
     ident: syn::Ident,
-    #[allow(unused)]
-    attrs: Vec<syn::Attribute>,
+    //#[allow(unused)]
+    //attrs: Vec<syn::Attribute>,
 
     #[darling(default)]
     pub(crate) transition: bool,
