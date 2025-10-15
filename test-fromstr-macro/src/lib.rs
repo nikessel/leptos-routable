@@ -118,7 +118,15 @@ mod tests {
 
     #[test]
     fn test_from_nested_with_fallback() {
+        // When a nested route doesn't match, it falls back to the parent's fallback
         let route: TestRoutes = "/admin/unknown".into();
-        assert_eq!(route, TestRoutes::Admin(AdminRoutes::AdminNotFound));
+        assert_eq!(route, TestRoutes::NotFound);
+    }
+
+    #[test]
+    fn test_from_str_nested_fails() {
+        // FromStr should error on invalid nested routes
+        let result = TestRoutes::from_str("/admin/unknown");
+        assert!(result.is_err());
     }
 }

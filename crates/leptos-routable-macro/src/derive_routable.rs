@@ -756,8 +756,9 @@ fn build_variant_constructor(
                                 "/".to_string()
                             };
 
-                            // Parse nested route - use From::from so nested fallbacks work
-                            let nested: #field_ty = remaining_path.as_str().into();
+                            // Parse nested route using FromStr
+                            let nested = <#field_ty as ::std::str::FromStr>::from_str(&remaining_path)
+                                .map_err(|_| format!("Failed to parse nested route at path: {}", input))?;
 
                             return Ok(#enum_ident::#variant_ident(nested));
                         }
