@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "leptos-routable"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "leptos",
  "leptos-routable-macro",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "leptos-routable-macro"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "darling",
  "deluxe",
@@ -1797,6 +1797,16 @@ dependencies = [
  "throw_error",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "test-fromstr-macro"
+version = "0.2.0"
+dependencies = [
+ "leptos",
+ "leptos-routable",
+ "leptos-routable-macro",
+ "leptos_router",
 ]
 
 [[package]]

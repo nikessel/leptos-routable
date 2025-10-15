@@ -225,14 +225,14 @@ fn generate_path_builder(route: &str, fields: &[(String, Type)]) -> proc_macro2:
 /* ---------------------------------------------------------------------- *
  * SEGMENTS & HELPERS
  * ---------------------------------------------------------------------- */
-#[derive(Debug)]
-enum RouteSegment {
+#[derive(Debug, Clone)]
+pub(crate) enum RouteSegment {
     Static(String),
     Param(String),
     OptionalParam(String),
 }
 
-fn parse_segments(route: &str) -> Vec<RouteSegment> {
+pub(crate) fn parse_segments(route: &str) -> Vec<RouteSegment> {
     let without_leading = route.trim_start_matches('/');
     let mut segs = Vec::new();
     for part in without_leading.split('/') {
@@ -251,7 +251,7 @@ fn parse_segments(route: &str) -> Vec<RouteSegment> {
     segs
 }
 
-fn is_option_type(ty: &Type) -> bool {
+pub(crate) fn is_option_type(ty: &Type) -> bool {
     if let syn::Type::Path(tp) = ty {
         if let Some(seg) = tp.path.segments.last() {
             return seg.ident == "Option";
@@ -260,7 +260,7 @@ fn is_option_type(ty: &Type) -> bool {
     false
 }
 
-fn find_route_path(attrs: &[Attribute]) -> Option<String> {
+pub(crate) fn find_route_path(attrs: &[Attribute]) -> Option<String> {
     for attr in attrs {
         // TODO: Integrate into Routable
         if attr.path().is_ident("route")

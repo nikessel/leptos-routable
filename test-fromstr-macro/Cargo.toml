@@ -1,0 +1,11 @@
+[package]
+name = "test-fromstr-macro"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+
+[dependencies]
+leptos-routable = { path = "../crates/leptos-routable" }
+leptos-routable-macro = { path = "../crates/leptos-routable-macro" }
+leptos = "0.8"
+leptos_router = "0.8"

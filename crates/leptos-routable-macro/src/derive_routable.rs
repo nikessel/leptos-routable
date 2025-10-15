@@ -426,11 +426,320 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error().into(),
     };
 
+    let from_str_impl = match generate_from_str_impl(&enum_ident, data) {
+        Ok(ts) => ts,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
+    let from_asref_str_impl = generate_from_asref_str_impl(&enum_ident, data);
+
     let expanded = quote! {
         #routable_impl
         #to_href_display_impl
+        #from_str_impl
+        #from_asref_str_impl
     };
     expanded.into()
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * FromStr Implementation
+ * -----------------------------------------------------------------------------------------------*/
+fn generate_from_str_impl(
+    enum_ident: &syn::Ident,
+    data: &syn::DataEnum,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let mut match_arms = Vec::new();
+
+    for variant in &data.variants {
+        let variant_ident = &variant.ident;
+        let route_path = match crate::to_href_display::find_route_path(&variant.attrs) {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                // Handle nested routers (single unnamed field)
+                if let Fields::Unnamed(unnamed) = &variant.fields {
+                    if unnamed.unnamed.len() == 1 {
+                        let field_ty = &unnamed.unnamed[0].ty;
+                        match_arms.push(quote! {
+                            // Try nested route parsing
+                            if let Ok(nested) = <#field_ty as ::std::str::FromStr>::from_str(input) {
+                                return Ok(#enum_ident::#variant_ident(nested));
+                            }
+                        });
+                    }
+                }
+                continue;
+            }
+        };
+
+        let segments = crate::to_href_display::parse_segments(&route_path);
+        let pattern_match = generate_pattern_match(&segments, &variant.fields, enum_ident, variant_ident)?;
+        match_arms.push(pattern_match);
+    }
+
+    let parse_url_parts = parse_url_parts_tokens();
+
+    Ok(quote! {
+        impl ::std::str::FromStr for #enum_ident {
+            type Err = String;
+
+            fn from_str(input: &str) -> Result<Self, Self::Err> {
+                #parse_url_parts
+
+                // Parse URL to get path and query params
+                let (path, query_params) = parse_url_parts(input);
+                let path_segments: Vec<&str> = path.trim_start_matches('/')
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                #(#match_arms)*
+
+                Err(format!("No route matches path: {}", input))
+            }
+        }
+    })
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * From<AsRef<str>> Implementation (with fallback)
+ * -----------------------------------------------------------------------------------------------*/
+fn generate_from_asref_str_impl(
+    enum_ident: &syn::Ident,
+    data: &syn::DataEnum,
+) -> proc_macro2::TokenStream {
+    // Find the fallback variant
+    let fallback_variant = data.variants.iter()
+        .find(|v| v.attrs.iter().any(|attr| attr.path().is_ident("fallback")))
+        .map(|v| &v.ident);
+
+    let Some(fallback_ident) = fallback_variant else {
+        // No fallback, don't generate From impl
+        return quote!();
+    };
+
+    quote! {
+        impl<T: AsRef<str>> From<T> for #enum_ident {
+            fn from(value: T) -> Self {
+                match <#enum_ident as ::std::str::FromStr>::from_str(value.as_ref()) {
+                    Ok(route) => route,
+                    Err(_) => #enum_ident::#fallback_ident,
+                }
+            }
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * Helper functions for FromStr
+ * -----------------------------------------------------------------------------------------------*/
+fn generate_pattern_match(
+    segments: &[crate::to_href_display::RouteSegment],
+    fields: &Fields,
+    enum_ident: &syn::Ident,
+    variant_ident: &syn::Ident,
+) -> syn::Result<proc_macro2::TokenStream> {
+    use crate::to_href_display::RouteSegment;
+
+    let mut field_parsers = Vec::new();
+    let mut required_segments = 0;
+    let mut has_optional = false;
+
+    // Count required segments and check for optional params
+    for seg in segments {
+        match seg {
+            RouteSegment::Static(_) | RouteSegment::Param(_) => required_segments += 1,
+            RouteSegment::OptionalParam(_) => has_optional = true,
+        }
+    }
+
+    // Generate segment matching logic
+    let mut segment_checks = Vec::new();
+    let mut segment_idx = 0;
+
+    for seg in segments {
+        let idx = syn::Index::from(segment_idx);
+        match seg {
+            RouteSegment::Static(text) => {
+                segment_checks.push(quote! {
+                    if path_segments.get(#idx) != Some(&#text) {
+                        return false;
+                    }
+                });
+                segment_idx += 1;
+            }
+            RouteSegment::Param(name) => {
+                let field_ident = syn::Ident::new(name, proc_macro2::Span::call_site());
+                field_parsers.push(quote! {
+                    let #field_ident = path_segments[#idx]
+                        .parse()
+                        .map_err(|_| format!("Failed to parse {} as expected type", #name))?;
+                });
+                segment_idx += 1;
+            }
+            RouteSegment::OptionalParam(name) => {
+                let field_ident = syn::Ident::new(name, proc_macro2::Span::call_site());
+                field_parsers.push(quote! {
+                    let #field_ident = path_segments.get(#idx)
+                        .and_then(|s| s.parse().ok());
+                });
+                segment_idx += 1;
+            }
+        }
+    }
+
+    // Handle query parameters for optional fields
+    let query_param_parsers = generate_query_param_parsers(fields, segments);
+
+    // Build the variant constructor
+    let variant_constructor = build_variant_constructor(enum_ident, variant_ident, fields, segments)?;
+
+    // Build complete matching logic
+    let max_segments_val = syn::Index::from(segment_idx);
+    let required_segments_val = syn::Index::from(required_segments);
+
+    let max_segments = if has_optional {
+        quote! { path_segments.len() <= #max_segments_val }
+    } else {
+        quote! { path_segments.len() == #required_segments_val }
+    };
+
+    Ok(quote! {
+        // Check if this route matches
+        let matches = || -> bool {
+            if path_segments.len() < #required_segments_val {
+                return false;
+            }
+            if !(#max_segments) {
+                return false;
+            }
+            #(#segment_checks)*
+            true
+        };
+
+        if matches() {
+            #(#field_parsers)*
+            #query_param_parsers
+            return Ok(#variant_constructor);
+        }
+    })
+}
+
+fn generate_query_param_parsers(
+    fields: &Fields,
+    segments: &[crate::to_href_display::RouteSegment],
+) -> proc_macro2::TokenStream {
+    // Collect field names used in path
+    let mut used_fields = std::collections::HashSet::new();
+    for seg in segments {
+        match seg {
+            crate::to_href_display::RouteSegment::Param(name) |
+            crate::to_href_display::RouteSegment::OptionalParam(name) => {
+                used_fields.insert(name.clone());
+            }
+            _ => {}
+        }
+    }
+
+    let mut parsers = Vec::new();
+
+    if let Fields::Named(named) = fields {
+        for field in &named.named {
+            let field_name = field.ident.as_ref().unwrap();
+            let field_name_str = field_name.to_string();
+
+            // Skip fields already parsed from path
+            if used_fields.contains(&field_name_str) {
+                continue;
+            }
+
+            // Only handle Option fields in query params
+            if crate::to_href_display::is_option_type(&field.ty) {
+                parsers.push(quote! {
+                    let #field_name = query_params.get(#field_name_str)
+                        .and_then(|v| v.parse().ok());
+                });
+            }
+        }
+    }
+
+    quote! { #(#parsers)* }
+}
+
+fn build_variant_constructor(
+    enum_ident: &syn::Ident,
+    variant_ident: &syn::Ident,
+    fields: &Fields,
+    segments: &[crate::to_href_display::RouteSegment],
+) -> syn::Result<proc_macro2::TokenStream> {
+    match fields {
+        Fields::Unit => Ok(quote! { #enum_ident::#variant_ident }),
+        Fields::Named(named) => {
+            let mut field_inits = Vec::new();
+
+            for field in &named.named {
+                let field_name = field.ident.as_ref().unwrap();
+                let field_name_str = field_name.to_string();
+
+                // Check if field is used in path
+                let in_path = segments.iter().any(|seg| match seg {
+                    crate::to_href_display::RouteSegment::Param(name) |
+                    crate::to_href_display::RouteSegment::OptionalParam(name) => name == &field_name_str,
+                    _ => false,
+                });
+
+                if in_path {
+                    field_inits.push(quote! { #field_name });
+                } else if crate::to_href_display::is_option_type(&field.ty) {
+                    // Query param field (should be Option)
+                    field_inits.push(quote! { #field_name });
+                } else {
+                    // Non-Option field not in path - this shouldn't happen with proper validation
+                    field_inits.push(quote! { #field_name: Default::default() });
+                }
+            }
+
+            Ok(quote! { #enum_ident::#variant_ident { #(#field_inits),* } })
+        }
+        Fields::Unnamed(unnamed) => {
+            if unnamed.unnamed.len() == 1 {
+                // For nested routes, this is handled separately
+                Ok(quote! { #enum_ident::#variant_ident(_0) })
+            } else {
+                Err(syn::Error::new(
+                    variant_ident.span(),
+                    "Variants with multiple unnamed fields are not supported",
+                ))
+            }
+        }
+    }
+}
+
+// Helper function to parse URL into path and query params
+fn parse_url_parts_tokens() -> proc_macro2::TokenStream {
+    quote! {
+        fn parse_url_parts(url: &str) -> (&str, std::collections::HashMap<String, String>) {
+            let mut query_params = std::collections::HashMap::new();
+
+            let (path, query) = if let Some(idx) = url.find('?') {
+                (&url[..idx], Some(&url[idx + 1..]))
+            } else {
+                (url, None)
+            };
+
+            if let Some(query_str) = query {
+                for pair in query_str.split('&') {
+                    if let Some(eq_idx) = pair.find('=') {
+                        let key = &pair[..eq_idx];
+                        let value = &pair[eq_idx + 1..];
+                        query_params.insert(key.to_string(), value.to_string());
+                    }
+                }
+            }
+
+            (path, query_params)
+        }
+    }
 }
 
 /* -------------------------------------------------------------------------------------------------
