@@ -19,9 +19,26 @@ pub enum TestRoutes {
         comment: Option<String>,
     },
 
+    #[parent_route(path = "/admin")]
+    Admin(AdminRoutes),
+
     #[fallback]
     #[route(path = "/404")]
     NotFound,
+}
+
+#[derive(Routable, PartialEq, Debug)]
+#[routes(view_prefix = "", view_suffix = "View", transition = false)]
+pub enum AdminRoutes {
+    #[route(path = "/users")]
+    AdminUsers,
+
+    #[route(path = "/settings")]
+    AdminSettings,
+
+    #[fallback]
+    #[route(path = "/404")]
+    AdminNotFound,
 }
 
 // Stub view functions - these won't actually be called in tests
@@ -29,6 +46,10 @@ fn HomeView() -> &'static str { "home" }
 fn AboutView() -> &'static str { "about" }
 fn UserView() -> &'static str { "user" }
 fn PostView() -> &'static str { "post" }
+fn AdminView() -> &'static str { "admin" }
+fn AdminUsersView() -> &'static str { "admin_users" }
+fn AdminSettingsView() -> &'static str { "admin_settings" }
+fn AdminNotFoundView() -> &'static str { "admin_notfound" }
 fn NotFoundView() -> &'static str { "notfound" }
 
 #[cfg(test)]
@@ -81,5 +102,23 @@ mod tests {
     fn test_from_valid_route() {
         let route: TestRoutes = "/about".into();
         assert_eq!(route, TestRoutes::About);
+    }
+
+    #[test]
+    fn test_from_str_nested_admin_users() {
+        let route = TestRoutes::from_str("/admin/users").unwrap();
+        assert_eq!(route, TestRoutes::Admin(AdminRoutes::AdminUsers));
+    }
+
+    #[test]
+    fn test_from_str_nested_admin_settings() {
+        let route = TestRoutes::from_str("/admin/settings").unwrap();
+        assert_eq!(route, TestRoutes::Admin(AdminRoutes::AdminSettings));
+    }
+
+    #[test]
+    fn test_from_nested_with_fallback() {
+        let route: TestRoutes = "/admin/unknown".into();
+        assert_eq!(route, TestRoutes::Admin(AdminRoutes::AdminNotFound));
     }
 }

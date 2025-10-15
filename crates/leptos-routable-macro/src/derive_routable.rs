@@ -591,38 +591,78 @@ fn generate_pattern_match(
     // Handle query parameters for optional fields
     let query_param_parsers = generate_query_param_parsers(fields, segments);
 
+    // Get nested field type if this is a parent route with nested routes
+    let nested_field_ty = if let Fields::Unnamed(unnamed) = fields {
+        if unnamed.unnamed.len() == 1 {
+            Some(&unnamed.unnamed[0].ty)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Build the variant constructor
-    let variant_constructor = build_variant_constructor(enum_ident, variant_ident, fields, segments)?;
+    let variant_constructor = build_variant_constructor(enum_ident, variant_ident, fields, segments, nested_field_ty)?;
 
     // Build complete matching logic
     let max_segments_val = syn::Index::from(segment_idx);
     let required_segments_val = syn::Index::from(required_segments);
+    let segment_count_val = syn::Index::from(segment_idx);
 
-    let max_segments = if has_optional {
+    // For nested routes, allow more segments than the parent path
+    let max_segments = if nested_field_ty.is_some() {
+        quote! { path_segments.len() >= #required_segments_val }
+    } else if has_optional {
         quote! { path_segments.len() <= #max_segments_val }
     } else {
         quote! { path_segments.len() == #required_segments_val }
     };
 
-    Ok(quote! {
-        // Check if this route matches
-        let matches = || -> bool {
-            if path_segments.len() < #required_segments_val {
-                return false;
-            }
-            if !(#max_segments) {
-                return false;
-            }
-            #(#segment_checks)*
-            true
-        };
+    // For nested routes, include the parsing logic before the constructor
+    if nested_field_ty.is_some() {
+        Ok(quote! {
+            // Check if this route matches
+            let matches = || -> bool {
+                if path_segments.len() < #required_segments_val {
+                    return false;
+                }
+                if !(#max_segments) {
+                    return false;
+                }
+                #(#segment_checks)*
+                true
+            };
 
-        if matches() {
-            #(#field_parsers)*
-            #query_param_parsers
-            return Ok(#variant_constructor);
-        }
-    })
+            if matches() {
+                let segment_count = #segment_count_val;
+                #(#field_parsers)*
+                #query_param_parsers
+                #variant_constructor
+            }
+        })
+    } else {
+        Ok(quote! {
+            // Check if this route matches
+            let matches = || -> bool {
+                if path_segments.len() < #required_segments_val {
+                    return false;
+                }
+                if !(#max_segments) {
+                    return false;
+                }
+                #(#segment_checks)*
+                true
+            };
+
+            if matches() {
+                let segment_count = #segment_count_val;
+                #(#field_parsers)*
+                #query_param_parsers
+                return Ok(#variant_constructor);
+            }
+        })
+    }
 }
 
 fn generate_query_param_parsers(
@@ -671,6 +711,7 @@ fn build_variant_constructor(
     variant_ident: &syn::Ident,
     fields: &Fields,
     segments: &[crate::to_href_display::RouteSegment],
+    nested_field_ty: Option<&syn::Type>,
 ) -> syn::Result<proc_macro2::TokenStream> {
     match fields {
         Fields::Unit => Ok(quote! { #enum_ident::#variant_ident }),
@@ -703,8 +744,30 @@ fn build_variant_constructor(
         }
         Fields::Unnamed(unnamed) => {
             if unnamed.unnamed.len() == 1 {
-                // For nested routes, this is handled separately
-                Ok(quote! { #enum_ident::#variant_ident(_0) })
+                // For nested routes (parent routes), we need to parse the remaining path
+                if let Some(field_ty) = nested_field_ty {
+                    Ok(quote! {
+                        {
+                            // Construct the remaining path for nested route
+                            let remaining_path = if path_segments.len() > segment_count {
+                                let remaining: Vec<&str> = path_segments[segment_count..].to_vec();
+                                format!("/{}", remaining.join("/"))
+                            } else {
+                                "/".to_string()
+                            };
+
+                            // Parse nested route - use From::from so nested fallbacks work
+                            let nested: #field_ty = remaining_path.as_str().into();
+
+                            return Ok(#enum_ident::#variant_ident(nested));
+                        }
+                    })
+                } else {
+                    Err(syn::Error::new(
+                        variant_ident.span(),
+                        "Nested route field type not provided",
+                    ))
+                }
             } else {
                 Err(syn::Error::new(
                     variant_ident.span(),

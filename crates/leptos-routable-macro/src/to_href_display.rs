@@ -315,7 +315,7 @@ pub(crate) fn generate_to_href_display_impl(
                     #variant_pat => {
                         let prefix_str = { #build_code };
                         let nested_str = _0.to_string();
-                        combine_paths(&prefix_str, &nested_str)
+                        ::leptos_routable::prelude::combine_paths(&prefix_str, &nested_str)
                     }
                 });
                 continue;
