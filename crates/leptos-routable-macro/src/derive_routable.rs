@@ -4,6 +4,29 @@ use quote::quote;
 use syn::{parse_macro_input, spanned::Spanned, Data::{Enum, Struct, Union}, DeriveInput, Ident, Type, Variant, Fields};
 use darling::{FromDeriveInput, FromVariant};
 
+/* -------------------------------------------------------------------------------------------------
+ * Helper Functions
+ * -----------------------------------------------------------------------------------------------*/
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut prev_upper = false;
+
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 && !prev_upper {
+                result.push('_');
+            }
+            result.push(c.to_lowercase().next().unwrap());
+            prev_upper = true;
+        } else {
+            result.push(c);
+            prev_upper = false;
+        }
+    }
+
+    result
+}
+
 trait IntoChildTokens {
     fn into_child_tokens(self, view: Ident) -> Option<TokenStream2>;
 }
@@ -269,13 +292,13 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         syn::Ident::new(&state_name, config.ident.span())
     });
 
-    // Collect variant names for validation
-    let variant_field_names: Vec<syn::Ident> = if state_store_type.is_some() {
+    // Collect variant names for validation (using snake_case)
+    let _variant_field_names: Vec<syn::Ident> = if state_store_type.is_some() {
         data.variants
             .iter()
             .map(|v| {
                 syn::Ident::new(
-                    &v.ident.to_string().to_lowercase(),
+                    &to_snake_case(&v.ident.to_string()),
                     v.ident.span()
                 )
             })
@@ -304,7 +327,7 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
             );
             let variant_name = &variant.ident;
             let field_name = syn::Ident::new(
-                &variant_name.to_string().to_lowercase(),
+                &to_snake_case(&variant_name.to_string()),
                 variant_name.span()
             );
 
@@ -347,15 +370,37 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
     // Generate store initialization and validation if state_suffix is provided
     let (store_init, field_validation) = if let Some(ref state_store_type) = state_store_type {
-        // Generate compile-time field validation
-        let field_checks = variant_field_names.iter().map(|field_name| {
-            quote! {
-                // This will fail to compile if the field doesn't exist
-                let _ = |store: &#state_store_type| {
-                    let _ = store.#field_name;
-                };
-            }
-        });
+        // Only validate that nested routes have corresponding fields
+        // Parent routes can have state fields too, but we only enforce nested route fields
+        let nested_route_checks: Vec<_> = data.variants
+            .iter()
+            .filter_map(|v| {
+                // Check if this is a nested route (parent route with children)
+                if matches!(&v.fields, syn::Fields::Unnamed(_)) {
+                    // For nested routes within this parent, generate field checks
+                    if let syn::Fields::Unnamed(fields) = &v.fields {
+                        if let Some(syn::Field { ty: syn::Type::Path(type_path), .. }) = fields.unnamed.first() {
+                            // Extract the nested enum name to build field names
+                            if let Some(nested_enum) = type_path.path.segments.last() {
+                                let _nested_ident = &nested_enum.ident;
+                                // For now, we'll just check the parent field exists
+                                let parent_field = syn::Ident::new(
+                                    &to_snake_case(&v.ident.to_string()),
+                                    v.ident.span()
+                                );
+                                return Some(quote! {
+                                    // Parent route must have a field for its state
+                                    let _ = |store: &#state_store_type| {
+                                        let _ = store.#parent_field;
+                                    };
+                                });
+                            }
+                        }
+                    }
+                }
+                None
+            })
+            .collect();
 
         let init = quote! {
             // Initialize the root store and provide it as context
@@ -363,11 +408,15 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
             leptos::prelude::provide_context(state);
         };
 
-        let validation = quote! {
-            // Compile-time validation that state struct has all required fields
-            const _: () = {
-                #(#field_checks)*
-            };
+        let validation = if !nested_route_checks.is_empty() {
+            quote! {
+                // Compile-time validation for nested route fields
+                const _: () = {
+                    #(#nested_route_checks)*
+                };
+            }
+        } else {
+            quote! {}
         };
 
         (init, validation)

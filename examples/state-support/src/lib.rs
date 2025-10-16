@@ -13,7 +13,7 @@ pub struct AppRoutesState {
     home: HomeState,
     about: AboutState,
     dashboard: DashboardState,
-    notfound: NotFoundState,
+    not_found: NotFoundState,
 }
 
 #[derive(Store, Default, Debug)]
@@ -31,9 +31,9 @@ pub struct AboutState {
 pub struct DashboardState {
     pub user: Option<User>,
     pub notifications: Vec<String>,
-    // Nested states for nested routes
-    pub dashboardanalytics: AnalyticsState,
-    pub dashboardsettings: SettingsState,
+    // Nested states for nested routes (snake_case naming)
+    pub dashboard_analytics: AnalyticsState,
+    pub dashboard_settings: SettingsState,
 }
 
 #[derive(Store, Default, Debug)]
@@ -217,11 +217,11 @@ pub fn DashboardAnalyticsView() -> impl IntoView {
                     <p class="text-red-500">"Login required to view analytics"</p>
                 }.into_any()
             }}
-            <p>"Page views: " {move || parent_state.dashboardanalytics().page_views().get()}</p>
+            <p>"Page views: " {move || parent_state.dashboard_analytics().page_views().get()}</p>
             <button
                 class="mt-2 px-4 py-2 bg-purple-500 text-white rounded"
                 on:click=move |_| {
-                    parent_state.dashboardanalytics().page_views().update(|v| *v += 1);
+                    parent_state.dashboard_analytics().page_views().update(|v| *v += 1);
                 }
             >
                 "Simulate Page View"
@@ -238,17 +238,17 @@ pub fn DashboardSettingsView() -> impl IntoView {
     view! {
         <div class="p-4">
             <h2 class="text-xl font-bold">"Settings"</h2>
-            <p>"Current theme: " {move || parent_state.dashboardsettings().theme().get()}</p>
+            <p>"Current theme: " {move || parent_state.dashboard_settings().theme().get()}</p>
             <div class="mt-4 space-x-2">
                 <button
                     class="px-4 py-2 bg-gray-700 text-white rounded"
-                    on:click=move |_| parent_state.dashboardsettings().theme().set("dark".to_string())
+                    on:click=move |_| parent_state.dashboard_settings().theme().set("dark".to_string())
                 >
                     "Dark Theme"
                 </button>
                 <button
                     class="px-4 py-2 bg-gray-200 text-black rounded"
-                    on:click=move |_| parent_state.dashboardsettings().theme().set("light".to_string())
+                    on:click=move |_| parent_state.dashboard_settings().theme().set("light".to_string())
                 >
                     "Light Theme"
                 </button>
