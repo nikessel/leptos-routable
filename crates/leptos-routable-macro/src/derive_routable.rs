@@ -155,6 +155,9 @@ pub(crate) struct RoutableConfiguration {
 
     #[darling(default = "default_view_suffix")]
     pub(crate) view_suffix: String,
+
+    #[darling(default)]
+    pub(crate) state_suffix: Option<String>,
 }
 
 impl IntoChildTokens for RouteKind {
@@ -258,6 +261,29 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
     let mut children = Vec::new();
     let mut fallback = None::<TokenStream2>;
+    let mut state_wrappers = Vec::new();
+
+    // Determine if we need state support
+    let state_store_type = config.state_suffix.as_ref().map(|suffix| {
+        let state_name = format!("{}{}", config.ident, suffix);
+        syn::Ident::new(&state_name, config.ident.span())
+    });
+
+    // Collect variant names for validation
+    let variant_field_names: Vec<syn::Ident> = if state_store_type.is_some() {
+        data.variants
+            .iter()
+            .map(|v| {
+                syn::Ident::new(
+                    &v.ident.to_string().to_lowercase(),
+                    v.ident.span()
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     for variant in &data.variants {
         let view_ident = crate::utils::build_variant_view_name(&config.ident, &variant.ident, &config);
         let route_kind = match parse_variant(variant) {
@@ -270,8 +296,36 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
             Err(err) => return err.to_compile_error().into(),
         }
 
+        // Generate state wrapper if state_suffix is provided
+        let view_to_use = if state_store_type.is_some() {
+            let wrapper_ident = syn::Ident::new(
+                &format!("__wrapped_{}", view_ident),
+                view_ident.span()
+            );
+            let variant_name = &variant.ident;
+            let field_name = syn::Ident::new(
+                &variant_name.to_string().to_lowercase(),
+                variant_name.span()
+            );
+
+            // Check if this is a parent route (has nested routes)
+            let is_parent = matches!(&variant.fields, syn::Fields::Unnamed(_));
+
+            state_wrappers.push(generate_state_wrapper(
+                &wrapper_ident,
+                &view_ident,
+                &field_name,
+                state_store_type.as_ref().unwrap(),
+                is_parent,
+            ));
+
+            wrapper_ident
+        } else {
+            view_ident
+        };
+
         if let Some(kind) = route_kind {
-            if let Some(child_ts) = kind.into_child_tokens(view_ident) {
+            if let Some(child_ts) = kind.into_child_tokens(view_to_use) {
                 children.push(child_ts);
             }
         }
@@ -290,16 +344,55 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     };
     let enum_ident = config.ident;
     let transition = config.transition;
+
+    // Generate store initialization and validation if state_suffix is provided
+    let (store_init, field_validation) = if let Some(ref state_store_type) = state_store_type {
+        // Generate compile-time field validation
+        let field_checks = variant_field_names.iter().map(|field_name| {
+            quote! {
+                // This will fail to compile if the field doesn't exist
+                let _ = |store: &#state_store_type| {
+                    let _ = store.#field_name;
+                };
+            }
+        });
+
+        let init = quote! {
+            // Initialize the root store and provide it as context
+            let state = reactive_stores::Store::new(<#state_store_type as Default>::default());
+            leptos::prelude::provide_context(state);
+        };
+
+        let validation = quote! {
+            // Compile-time validation that state struct has all required fields
+            const _: () = {
+                #(#field_checks)*
+            };
+        };
+
+        (init, validation)
+    } else {
+        (quote! {}, quote! {})
+    };
+
     let routable_impl = quote! {
+        // Compile-time validation of state fields
+        #field_validation
+
+        // Generate wrapper view functions
+        #(#state_wrappers)*
+
         /* -----------------------------------------------------------------------------------------
          * `Routable` implementation
          * ---------------------------------------------------------------------------------------*/
         impl Routable for #enum_ident {
 
             /* -------------------------------------------------------------------------------------
-             * `FlatRoutes` implementation
+             * `Routes` implementation
              * -----------------------------------------------------------------------------------*/
             fn routes() -> impl ::leptos::IntoView {
+                #store_init
+
                 ::leptos_router::components::Routes(
                     ::leptos_router::components::RoutesProps::builder()
                         .transition(#transition)
@@ -317,6 +410,8 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
              * `FlatRoutes` implementation
              * -----------------------------------------------------------------------------------*/
             fn flat_routes() -> impl ::leptos::IntoView {
+                #store_init
+
                 ::leptos_router::components::FlatRoutes(
                     ::leptos_router::components::FlatRoutesProps::builder()
                         .transition(#transition)
@@ -802,6 +897,58 @@ fn parse_url_parts_tokens() -> proc_macro2::TokenStream {
             }
 
             (path, query_params)
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * Generate State Wrapper
+ * -----------------------------------------------------------------------------------------------*/
+fn generate_state_wrapper(
+    wrapper_ident: &syn::Ident,
+    view_ident: &syn::Ident,
+    field_name: &syn::Ident,
+    state_store_type: &syn::Ident,
+    is_parent: bool,
+) -> TokenStream2 {
+    if is_parent {
+        // Parent routes provide their state field to children
+        quote! {
+            #[leptos::component]
+            fn #wrapper_ident() -> impl leptos::IntoView {
+                let root_store = leptos::prelude::use_context::<reactive_stores::Store<#state_store_type>>()
+                    .expect(concat!(stringify!(#state_store_type), " should be provided by router"));
+
+                // Get the field for this route
+                let state_field = root_store.#field_name();
+
+                // Provide it as context for child routes
+                leptos::prelude::provide_context(state_field.clone());
+
+                // Render the view with Outlet for nested routes
+                leptos::prelude::view! {
+                    <#view_ident />
+                    <leptos_router::components::Outlet />
+                }
+            }
+        }
+    } else {
+        // Regular routes just provide their state field
+        quote! {
+            #[leptos::component]
+            fn #wrapper_ident() -> impl leptos::IntoView {
+                let root_store = leptos::prelude::use_context::<reactive_stores::Store<#state_store_type>>()
+                    .expect(concat!(stringify!(#state_store_type), " should be provided by router"));
+
+                // Get the field for this route
+                let state_field = root_store.#field_name();
+
+                // Provide it as context
+                leptos::prelude::provide_context(state_field);
+
+                // Render the view
+                #view_ident()
+            }
         }
     }
 }

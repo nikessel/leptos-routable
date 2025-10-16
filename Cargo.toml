@@ -3,8 +3,10 @@ members = [
     "crates/leptos-routable-macro",
     "crates/leptos-routable",
     "examples/basic-flat-router",
-    "examples/basic-nested-router"
-, "test-fromstr-macro"]
+    "examples/basic-nested-router",
+    "examples/state-support",
+    "test-fromstr-macro"
+]
 resolver = "2"
 
 [workspace.package]
