@@ -457,6 +457,19 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Generate state initialization for routes() method (only for root enum)
+    let state_init = if let Some(ref state_store_type) = state_store_type {
+        let provide_statements = generate_recursive_provides(data, quote! { __root_store });
+
+        quote! {
+            let __root_store = reactive_stores::Store::new(<#state_store_type as Default>::default());
+            leptos::prelude::provide_context(__root_store.clone());
+            #(#provide_statements)*
+        }
+    } else {
+        quote! {}
+    };
+
     // Generate state provider methods
     // 1. Generate __provide_contexts for nested enums (those WITHOUT state_suffix)
     // 2. Generate provide_state_contexts for root enum (one WITH state_suffix)
@@ -492,6 +505,8 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
              * `Routes` implementation
              * -----------------------------------------------------------------------------------*/
             fn routes() -> impl ::leptos::IntoView {
+                #state_init
+
                 ::leptos_router::components::Routes(
                     ::leptos_router::components::RoutesProps::builder()
                         .transition(#transition)
@@ -509,6 +524,8 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
              * `FlatRoutes` implementation
              * -----------------------------------------------------------------------------------*/
             fn flat_routes() -> impl ::leptos::IntoView {
+                #state_init
+
                 ::leptos_router::components::FlatRoutes(
                     ::leptos_router::components::FlatRoutesProps::builder()
                         .transition(#transition)
