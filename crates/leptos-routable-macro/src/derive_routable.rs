@@ -1081,8 +1081,15 @@ fn generate_recursive_provides(
             variant.ident.span()
         );
 
+        let state_type = syn::Ident::new(
+            &format!("{}State", variant.ident),
+            variant.ident.span()
+        );
+
         statements.push(quote! {
-            leptos::prelude::provide_context(#accessor.clone().#field_name());
+            leptos::prelude::provide_context(
+                reactive_stores::Field::<#state_type>::from(#accessor.clone().#field_name())
+            );
         });
 
         if let syn::Fields::Unnamed(fields) = &variant.fields {
@@ -1090,8 +1097,15 @@ fn generate_recursive_provides(
                 if let Some(nested_enum) = type_path.path.segments.last() {
                     let nested_enum_ident = &nested_enum.ident;
 
+                    let sub_state_type = syn::Ident::new(
+                        &format!("{}SubState", variant.ident),
+                        variant.ident.span()
+                    );
+
                     statements.push(quote! {
-                        leptos::prelude::provide_context(#accessor.clone().#field_name().sub_state());
+                        leptos::prelude::provide_context(
+                            reactive_stores::Field::<#sub_state_type>::from(#accessor.clone().#field_name().sub_state())
+                        );
                     });
 
                     statements.push(quote! {
