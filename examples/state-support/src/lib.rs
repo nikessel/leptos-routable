@@ -40,18 +40,35 @@ pub struct DashboardState {
 // SubState struct for Dashboard's nested routes
 #[derive(Store, Default, Debug)]
 pub struct DashboardSubState {
-    pub dashboard_analytics: AnalyticsState,
-    pub dashboard_settings: SettingsState,
+    pub dashboard_analytics: DashboardAnalyticsState,
+    pub dashboard_settings: DashboardSettingsState,
 }
 
 #[derive(Store, Default, Debug)]
-pub struct AnalyticsState {
+pub struct DashboardAnalyticsState {
     pub page_views: u64,
 }
 
 #[derive(Store, Default, Debug)]
-pub struct SettingsState {
+pub struct DashboardSettingsState {
     pub theme: String,
+    pub sub_state: DashboardSettingsSubState,
+}
+
+#[derive(Store, Default, Debug)]
+pub struct DashboardSettingsSubState {
+    pub settings_user: SettingsUserState,
+    pub settings_workspace: SettingsWorkspaceState,
+}
+
+#[derive(Store, Default, Debug)]
+pub struct SettingsUserState {
+    pub username: String,
+}
+
+#[derive(Store, Default, Debug)]
+pub struct SettingsWorkspaceState {
+    pub workspace_name: String,
 }
 
 #[derive(Store, Default, Debug)]
@@ -101,8 +118,18 @@ pub enum DashboardRoutes {
     #[route(path = "/analytics")]
     DashboardAnalytics,
 
-    #[route(path = "/settings")]
-    DashboardSettings,
+    #[parent_route(path = "/settings")]
+    DashboardSettings(DashboardSettingsRoutes),
+}
+
+#[derive(Routable, PartialEq, Debug, Clone)]
+#[routes(view_prefix = "", view_suffix = "View", transition = false)]
+pub enum DashboardSettingsRoutes {
+    #[route(path = "/user")]
+    SettingsUser,
+
+    #[route(path = "/workspace")]
+    SettingsWorkspace,
 }
 
 // ============================================================================
@@ -243,9 +270,6 @@ pub fn DashboardAnalyticsView() -> impl IntoView {
 
 #[component]
 pub fn DashboardSettingsView() -> impl IntoView {
-    // Access parent state
-    let parent_state = DashboardState::expect_context();
-
     // Access the sub_state that contains nested routes
     let sub_state = DashboardSubState::expect_context();
 
@@ -267,14 +291,47 @@ pub fn DashboardSettingsView() -> impl IntoView {
                     "Light Theme"
                 </button>
             </div>
-            {move || {
-                let notification_count = parent_state.notifications().get().len();
-                view! {
-                    <p class="mt-4 text-sm text-gray-600">
-                        "You have " {notification_count} " notifications (from parent state)"
-                    </p>
+            <div class="mt-4 border-t pt-4">
+                <leptos_router::components::Outlet />
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn SettingsUserView() -> impl IntoView {
+    let settings_sub_state = DashboardSettingsSubState::expect_context();
+
+    view! {
+        <div class="p-4">
+            <h3 class="text-lg font-bold">"User Settings"</h3>
+            <p>"Username: " {move || settings_sub_state.settings_user().username().get()}</p>
+            <input
+                type="text"
+                placeholder="Enter username"
+                on:input=move |ev| {
+                    settings_sub_state.settings_user().username().set(event_target_value(&ev));
                 }
-            }}
+            />
+        </div>
+    }
+}
+
+#[component]
+pub fn SettingsWorkspaceView() -> impl IntoView {
+    let settings_sub_state = DashboardSettingsSubState::expect_context();
+
+    view! {
+        <div class="p-4">
+            <h3 class="text-lg font-bold">"Workspace Settings"</h3>
+            <p>"Workspace: " {move || settings_sub_state.settings_workspace().workspace_name().get()}</p>
+            <input
+                type="text"
+                placeholder="Enter workspace name"
+                on:input=move |ev| {
+                    settings_sub_state.settings_workspace().workspace_name().set(event_target_value(&ev));
+                }
+            />
         </div>
     }
 }
@@ -320,7 +377,7 @@ pub fn App() -> impl IntoView {
                     <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardAnalytics) attr:class="hover:text-gray-300">
                         "Dashboard"
                     </A>
-                    <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardSettings) attr:class="hover:text-gray-300">
+                    <A href=AppRoutes::Dashboard(DashboardRoutes::DashboardSettings(DashboardSettingsRoutes::SettingsUser)) attr:class="hover:text-gray-300">
                         "Settings"
                     </A>
                 </div>

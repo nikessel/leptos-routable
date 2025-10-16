@@ -284,7 +284,6 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
     let mut children = Vec::new();
     let mut fallback = None::<TokenStream2>;
-    let mut state_wrappers = Vec::new();
 
     // Determine if we need state support
     let state_store_type = config.state_suffix.as_ref().map(|suffix| {
@@ -305,33 +304,8 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
             Err(err) => return err.to_compile_error().into(),
         }
 
-        // Generate state wrapper if state_suffix is provided
-        let view_to_use = if state_store_type.is_some() {
-            let wrapper_ident = syn::Ident::new(
-                &format!("__wrapped_{}", view_ident),
-                view_ident.span()
-            );
-            let variant_name = &variant.ident;
-            let field_name = syn::Ident::new(
-                &to_snake_case(&variant_name.to_string()),
-                variant_name.span()
-            );
-
-            // Check if this is a parent route (has nested routes)
-            let is_parent = matches!(&variant.fields, syn::Fields::Unnamed(_));
-
-            state_wrappers.push(generate_state_wrapper(
-                &wrapper_ident,
-                &view_ident,
-                &field_name,
-                state_store_type.as_ref().unwrap(),
-                is_parent,
-            ));
-
-            wrapper_ident
-        } else {
-            view_ident
-        };
+        // No longer generate per-route wrappers
+        let view_to_use = view_ident;
 
         if let Some(kind) = route_kind {
             if let Some(child_ts) = kind.into_child_tokens(view_to_use) {
@@ -354,8 +328,8 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     let enum_ident = config.ident;
     let transition = config.transition;
 
-    // Generate store initialization and validation if state_suffix is provided
-    let (store_init, field_validation) = if let Some(ref state_store_type) = state_store_type {
+    // Generate compile-time validation if state_suffix is provided
+    let field_validation = if let Some(ref state_store_type) = state_store_type {
         let mut all_checks = Vec::new();
 
         // Check that ALL routes have corresponding state structs (fields in root state)
@@ -406,42 +380,35 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
             }
         }
 
-        let init = quote! {
-            // Initialize the root store and provide it as context
-            let state = reactive_stores::Store::new(<#state_store_type as Default>::default());
-            leptos::prelude::provide_context(state);
-        };
-
-        let validation = quote! {
+        quote! {
             // Compile-time validation that all routes have state
             const _: () = {
                 #(#all_checks)*
             };
-        };
-
-        (init, validation)
+        }
     } else {
-        (quote! {}, quote! {})
+        quote! {}
     };
 
-    // Generate context helper impls if state support is enabled
-    let context_helpers = if state_store_type.is_some() {
+    // Generate context helper impls for all enums
+    let context_helpers = {
         let mut helper_impls = Vec::new();
 
-        // Generate impl for root state (uses Store<T>)
-        let root_state = state_store_type.as_ref().unwrap();
-        helper_impls.push(quote! {
-            impl #root_state {
-                pub fn use_context() -> Option<reactive_stores::Store<#root_state>> {
-                    leptos::prelude::use_context::<reactive_stores::Store<#root_state>>()
-                }
+        // Only root enum gets Store<T> helper
+        if let Some(root_state) = state_store_type.as_ref() {
+            helper_impls.push(quote! {
+                impl #root_state {
+                    pub fn use_context() -> Option<reactive_stores::Store<#root_state>> {
+                        leptos::prelude::use_context::<reactive_stores::Store<#root_state>>()
+                    }
 
-                pub fn expect_context() -> reactive_stores::Store<#root_state> {
-                    Self::use_context()
-                        .expect(concat!(stringify!(#root_state), " should be provided by router"))
+                    pub fn expect_context() -> reactive_stores::Store<#root_state> {
+                        Self::use_context()
+                            .expect(concat!(stringify!(#root_state), " should be provided by router"))
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Generate impl for each route's state type (uses Field<T>)
         for variant in &data.variants {
@@ -488,6 +455,19 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         quote! {
             #(#helper_impls)*
         }
+    };
+
+    // Generate state provider methods
+    // 1. Generate __provide_contexts for nested enums (those WITHOUT state_suffix)
+    // 2. Generate provide_state_contexts for root enum (one WITH state_suffix)
+    let nested_provide_method = if state_store_type.is_none() {
+        generate_nested_provide_method(&enum_ident, data)
+    } else {
+        quote! {}
+    };
+
+    let root_provide_method = if let Some(ref state_store_type) = state_store_type {
+        generate_root_provide_method(&enum_ident, data, state_store_type)
     } else {
         quote! {}
     };
@@ -496,11 +476,12 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         // Compile-time validation of state fields
         #field_validation
 
-        // Generate wrapper view functions
-        #(#state_wrappers)*
-
         // Generate context helper methods
         #context_helpers
+
+        // Generate state provider methods
+        #nested_provide_method
+        #root_provide_method
 
         /* -----------------------------------------------------------------------------------------
          * `Routable` implementation
@@ -511,8 +492,6 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
              * `Routes` implementation
              * -----------------------------------------------------------------------------------*/
             fn routes() -> impl ::leptos::IntoView {
-                #store_init
-
                 ::leptos_router::components::Routes(
                     ::leptos_router::components::RoutesProps::builder()
                         .transition(#transition)
@@ -530,8 +509,6 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
              * `FlatRoutes` implementation
              * -----------------------------------------------------------------------------------*/
             fn flat_routes() -> impl ::leptos::IntoView {
-                #store_init
-
                 ::leptos_router::components::FlatRoutes(
                     ::leptos_router::components::FlatRoutesProps::builder()
                         .transition(#transition)
@@ -1021,65 +998,94 @@ fn parse_url_parts_tokens() -> proc_macro2::TokenStream {
     }
 }
 
-/* -------------------------------------------------------------------------------------------------
- * Generate State Wrapper
- * -----------------------------------------------------------------------------------------------*/
-fn generate_state_wrapper(
-    wrapper_ident: &syn::Ident,
-    view_ident: &syn::Ident,
-    field_name: &syn::Ident,
-    state_store_type: &syn::Ident,
-    is_parent: bool,
+fn generate_nested_provide_method(
+    enum_ident: &syn::Ident,
+    data: &syn::DataEnum,
 ) -> TokenStream2 {
-    if is_parent {
-        // Parent routes provide their state AND all nested state contexts
-        quote! {
-            #[leptos::component]
-            fn #wrapper_ident() -> impl leptos::IntoView {
-                let root_store = leptos::prelude::use_context::<reactive_stores::Store<#state_store_type>>()
-                    .expect(concat!(stringify!(#state_store_type), " should be provided by router"));
+    let provide_statements = generate_recursive_provides(data, quote! { parent_sub_state });
 
-                // Get the field for this route
-                let state_field = root_store.#field_name();
-
-                // Provide the parent state as context
-                leptos::prelude::provide_context(state_field.clone());
-
-                // For parent routes, also provide contexts for ALL nested routes
-                // They can access their state through parent.sub_state.{route_name}
-                let sub_state = state_field.sub_state();
-
-                // The macro user is responsible for defining the SubState struct
-                // with fields for each nested route. We provide the whole sub_state
-                // so nested routes can access their specific fields
-                leptos::prelude::provide_context(sub_state);
-
-                // Render the view with Outlet for nested routes
-                leptos::prelude::view! {
-                    <#view_ident />
-                    <leptos_router::components::Outlet />
-                }
-            }
-        }
+    let enum_name = enum_ident.to_string();
+    let base_name = if enum_name.ends_with("Routes") {
+        enum_name.trim_end_matches("Routes")
     } else {
-        // Regular routes just provide their state field
-        quote! {
-            #[leptos::component]
-            fn #wrapper_ident() -> impl leptos::IntoView {
-                let root_store = leptos::prelude::use_context::<reactive_stores::Store<#state_store_type>>()
-                    .expect(concat!(stringify!(#state_store_type), " should be provided by router"));
+        &enum_name
+    };
 
-                // Get the field for this route
-                let state_field = root_store.#field_name();
+    let sub_state_type = syn::Ident::new(
+        &format!("{}SubState", base_name),
+        enum_ident.span()
+    );
 
-                // Provide it as context
-                leptos::prelude::provide_context(state_field);
+    let trait_name = syn::Ident::new(
+        &format!("{}StoreFields", sub_state_type),
+        enum_ident.span()
+    );
 
-                // Render the view
-                #view_ident()
+    quote! {
+        impl #enum_ident {
+            #[doc(hidden)]
+            pub fn __provide_contexts<F>(parent_sub_state: F)
+            where
+                F: reactive_stores::StoreField<Value = #sub_state_type> + #trait_name<F> + Clone + Send + Sync + 'static,
+            {
+                #(#provide_statements)*
             }
         }
     }
+}
+
+fn generate_root_provide_method(
+    enum_ident: &syn::Ident,
+    data: &syn::DataEnum,
+    state_store_type: &syn::Ident,
+) -> TokenStream2 {
+    let provide_statements = generate_recursive_provides(data, quote! { root_store });
+
+    quote! {
+        impl #enum_ident {
+            pub fn provide_state_contexts(root_store: reactive_stores::Store<#state_store_type>) {
+                leptos::prelude::provide_context(root_store.clone());
+                #(#provide_statements)*
+            }
+        }
+    }
+}
+
+/// Recursively generate provide_context statements for a route enum and all nested enums
+fn generate_recursive_provides(
+    data: &syn::DataEnum,
+    accessor: TokenStream2,
+) -> Vec<TokenStream2> {
+    let mut statements = Vec::new();
+
+    for variant in &data.variants {
+        let field_name = syn::Ident::new(
+            &to_snake_case(&variant.ident.to_string()),
+            variant.ident.span()
+        );
+
+        statements.push(quote! {
+            leptos::prelude::provide_context(#accessor.clone().#field_name());
+        });
+
+        if let syn::Fields::Unnamed(fields) = &variant.fields {
+            if let Some(syn::Field { ty: syn::Type::Path(type_path), .. }) = fields.unnamed.first() {
+                if let Some(nested_enum) = type_path.path.segments.last() {
+                    let nested_enum_ident = &nested_enum.ident;
+
+                    statements.push(quote! {
+                        leptos::prelude::provide_context(#accessor.clone().#field_name().sub_state());
+                    });
+
+                    statements.push(quote! {
+                        #nested_enum_ident::__provide_contexts(#accessor.clone().#field_name().sub_state());
+                    });
+                }
+            }
+        }
+    }
+
+    statements
 }
 
 /* -------------------------------------------------------------------------------------------------
