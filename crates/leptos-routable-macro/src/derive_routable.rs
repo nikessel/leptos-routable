@@ -292,20 +292,6 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         syn::Ident::new(&state_name, config.ident.span())
     });
 
-    // Collect variant names for validation (using snake_case)
-    let _variant_field_names: Vec<syn::Ident> = if state_store_type.is_some() {
-        data.variants
-            .iter()
-            .map(|v| {
-                syn::Ident::new(
-                    &to_snake_case(&v.ident.to_string()),
-                    v.ident.span()
-                )
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
 
     for variant in &data.variants {
         let view_ident = crate::utils::build_variant_view_name(&config.ident, &variant.ident, &config);
@@ -370,37 +356,55 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
     // Generate store initialization and validation if state_suffix is provided
     let (store_init, field_validation) = if let Some(ref state_store_type) = state_store_type {
-        // Only validate that nested routes have corresponding fields
-        // Parent routes can have state fields too, but we only enforce nested route fields
-        let nested_route_checks: Vec<_> = data.variants
-            .iter()
-            .filter_map(|v| {
-                // Check if this is a nested route (parent route with children)
-                if matches!(&v.fields, syn::Fields::Unnamed(_)) {
-                    // For nested routes within this parent, generate field checks
-                    if let syn::Fields::Unnamed(fields) = &v.fields {
-                        if let Some(syn::Field { ty: syn::Type::Path(type_path), .. }) = fields.unnamed.first() {
-                            // Extract the nested enum name to build field names
-                            if let Some(nested_enum) = type_path.path.segments.last() {
-                                let _nested_ident = &nested_enum.ident;
-                                // For now, we'll just check the parent field exists
-                                let parent_field = syn::Ident::new(
-                                    &to_snake_case(&v.ident.to_string()),
-                                    v.ident.span()
-                                );
-                                return Some(quote! {
-                                    // Parent route must have a field for its state
-                                    let _ = |store: &#state_store_type| {
-                                        let _ = store.#parent_field;
-                                    };
-                                });
-                            }
+        let mut all_checks = Vec::new();
+
+        // Check that ALL routes have corresponding state structs (fields in root state)
+        for variant in &data.variants {
+            let field_name = syn::Ident::new(
+                &to_snake_case(&variant.ident.to_string()),
+                variant.ident.span()
+            );
+
+            // Every route must have a field in the root state
+            all_checks.push(quote! {
+                // Every route must have a state field
+                let _ = |store: &#state_store_type| {
+                    let _ = store.#field_name;
+                };
+            });
+
+            // If this is a parent route, it must have a sub_state field
+            if matches!(&variant.fields, syn::Fields::Unnamed(_)) {
+                // Generate the expected SubState type name
+                let sub_state_type = syn::Ident::new(
+                    &format!("{}SubState", variant.ident),
+                    variant.ident.span()
+                );
+
+                // Check the type of the state field's sub_state
+                let field_state_type = syn::Ident::new(
+                    &format!("{}State", variant.ident),
+                    variant.ident.span()
+                );
+
+                all_checks.push(quote! {
+                    // Parent routes must have a sub_state field of the correct type
+                    let _ = |state: &#field_state_type| {
+                        let _: &#sub_state_type = &state.sub_state;
+                    };
+                });
+
+                // Also check that the SubState has fields for all nested routes
+                if let syn::Fields::Unnamed(fields) = &variant.fields {
+                    if let Some(syn::Field { ty: syn::Type::Path(type_path), .. }) = fields.unnamed.first() {
+                        if let Some(_nested_enum) = type_path.path.segments.last() {
+                            // This would need to parse the nested enum to get its variants
+                            // For now we'll trust the user to define the SubState correctly
                         }
                     }
                 }
-                None
-            })
-            .collect();
+            }
+        }
 
         let init = quote! {
             // Initialize the root store and provide it as context
@@ -408,20 +412,84 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
             leptos::prelude::provide_context(state);
         };
 
-        let validation = if !nested_route_checks.is_empty() {
-            quote! {
-                // Compile-time validation for nested route fields
-                const _: () = {
-                    #(#nested_route_checks)*
-                };
-            }
-        } else {
-            quote! {}
+        let validation = quote! {
+            // Compile-time validation that all routes have state
+            const _: () = {
+                #(#all_checks)*
+            };
         };
 
         (init, validation)
     } else {
         (quote! {}, quote! {})
+    };
+
+    // Generate context helper impls if state support is enabled
+    let context_helpers = if state_store_type.is_some() {
+        let mut helper_impls = Vec::new();
+
+        // Generate impl for root state (uses Store<T>)
+        let root_state = state_store_type.as_ref().unwrap();
+        helper_impls.push(quote! {
+            impl #root_state {
+                pub fn use_context() -> Option<reactive_stores::Store<#root_state>> {
+                    leptos::prelude::use_context::<reactive_stores::Store<#root_state>>()
+                }
+
+                pub fn expect_context() -> reactive_stores::Store<#root_state> {
+                    Self::use_context()
+                        .expect(concat!(stringify!(#root_state), " should be provided by router"))
+                }
+            }
+        });
+
+        // Generate impl for each route's state type (uses Field<T>)
+        for variant in &data.variants {
+            let state_type = syn::Ident::new(
+                &format!("{}State", variant.ident),
+                variant.ident.span()
+            );
+
+            helper_impls.push(quote! {
+                impl #state_type {
+                    pub fn use_context() -> Option<reactive_stores::Field<#state_type>> {
+                        leptos::prelude::use_context::<reactive_stores::Field<#state_type>>()
+                    }
+
+                    pub fn expect_context() -> reactive_stores::Field<#state_type> {
+                        Self::use_context()
+                            .expect(concat!(stringify!(#state_type), " should be provided by router"))
+                    }
+                }
+            });
+
+            // If it's a parent route, also generate helpers for SubState
+            if matches!(&variant.fields, syn::Fields::Unnamed(_)) {
+                let sub_state_type = syn::Ident::new(
+                    &format!("{}SubState", variant.ident),
+                    variant.ident.span()
+                );
+
+                helper_impls.push(quote! {
+                    impl #sub_state_type {
+                        pub fn use_context() -> Option<reactive_stores::Field<#sub_state_type>> {
+                            leptos::prelude::use_context::<reactive_stores::Field<#sub_state_type>>()
+                        }
+
+                        pub fn expect_context() -> reactive_stores::Field<#sub_state_type> {
+                            Self::use_context()
+                                .expect(concat!(stringify!(#sub_state_type), " should be provided by parent route"))
+                        }
+                    }
+                });
+            }
+        }
+
+        quote! {
+            #(#helper_impls)*
+        }
+    } else {
+        quote! {}
     };
 
     let routable_impl = quote! {
@@ -430,6 +498,9 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
         // Generate wrapper view functions
         #(#state_wrappers)*
+
+        // Generate context helper methods
+        #context_helpers
 
         /* -----------------------------------------------------------------------------------------
          * `Routable` implementation
@@ -961,7 +1032,7 @@ fn generate_state_wrapper(
     is_parent: bool,
 ) -> TokenStream2 {
     if is_parent {
-        // Parent routes provide their state field to children
+        // Parent routes provide their state AND all nested state contexts
         quote! {
             #[leptos::component]
             fn #wrapper_ident() -> impl leptos::IntoView {
@@ -971,8 +1042,17 @@ fn generate_state_wrapper(
                 // Get the field for this route
                 let state_field = root_store.#field_name();
 
-                // Provide it as context for child routes
+                // Provide the parent state as context
                 leptos::prelude::provide_context(state_field.clone());
+
+                // For parent routes, also provide contexts for ALL nested routes
+                // They can access their state through parent.sub_state.{route_name}
+                let sub_state = state_field.sub_state();
+
+                // The macro user is responsible for defining the SubState struct
+                // with fields for each nested route. We provide the whole sub_state
+                // so nested routes can access their specific fields
+                leptos::prelude::provide_context(sub_state);
 
                 // Render the view with Outlet for nested routes
                 leptos::prelude::view! {

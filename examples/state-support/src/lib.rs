@@ -2,18 +2,18 @@ use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, Meta, Title};
 use leptos_routable::prelude::*;
 use leptos_router::components::{Router, A};
-use reactive_stores::{Store, Field};
+use reactive_stores::Store;
 
 // ============================================================================
-// State definitions - Must match route variant names (lowercase)
+// State definitions - Must match route variant names (snake_case)
 // ============================================================================
 
 #[derive(Store, Default, Debug)]
 pub struct AppRoutesState {
-    home: HomeState,
-    about: AboutState,
-    dashboard: DashboardState,
-    not_found: NotFoundState,
+    pub home: HomeState,
+    pub about: AboutState,
+    pub dashboard: DashboardState,
+    pub not_found: NotFoundState,
 }
 
 #[derive(Store, Default, Debug)]
@@ -29,9 +29,17 @@ pub struct AboutState {
 
 #[derive(Store, Default, Debug)]
 pub struct DashboardState {
+    // Parent route's own fields
     pub user: Option<User>,
     pub notifications: Vec<String>,
-    // Nested states for nested routes (snake_case naming)
+
+    // Required sub_state field for nested routes
+    pub sub_state: DashboardSubState,
+}
+
+// SubState struct for Dashboard's nested routes
+#[derive(Store, Default, Debug)]
+pub struct DashboardSubState {
     pub dashboard_analytics: AnalyticsState,
     pub dashboard_settings: SettingsState,
 }
@@ -50,6 +58,10 @@ pub struct SettingsState {
 pub struct NotFoundState {
     pub attempted_path: String,
 }
+
+// Example of an empty state struct (still required!)
+#[derive(Store, Default, Debug)]
+pub struct EmptyState {}
 
 #[derive(Clone, Debug)]
 pub struct User {
@@ -99,9 +111,8 @@ pub enum DashboardRoutes {
 
 #[component]
 pub fn HomeView() -> impl IntoView {
-    // Access the state provided by the router
-    let state = use_context::<Field<HomeState>>()
-        .expect("HomeState should be provided");
+    // Use the auto-generated helper method
+    let state = HomeState::expect_context();
 
     view! {
         <div class="p-4">
@@ -123,8 +134,7 @@ pub fn HomeView() -> impl IntoView {
 
 #[component]
 pub fn AboutView() -> impl IntoView {
-    let state = use_context::<Field<AboutState>>()
-        .expect("AboutState should be provided");
+    let state = AboutState::expect_context();
 
     // Increment visits on mount
     Effect::new(move |_| {
@@ -142,8 +152,7 @@ pub fn AboutView() -> impl IntoView {
 #[component]
 pub fn DashboardView() -> impl IntoView {
     // Parent route state is available
-    let state = use_context::<Field<DashboardState>>()
-        .expect("DashboardState should be provided");
+    let state = DashboardState::expect_context();
 
     view! {
         <div class="p-4">
@@ -202,9 +211,11 @@ pub fn DashboardView() -> impl IntoView {
 
 #[component]
 pub fn DashboardAnalyticsView() -> impl IntoView {
-    // Can access parent state
-    let parent_state = use_context::<Field<DashboardState>>()
-        .expect("DashboardState from parent");
+    // Access parent state
+    let parent_state = DashboardState::expect_context();
+
+    // Access the sub_state that contains nested routes
+    let sub_state = DashboardSubState::expect_context();
 
     view! {
         <div class="p-4">
@@ -217,11 +228,11 @@ pub fn DashboardAnalyticsView() -> impl IntoView {
                     <p class="text-red-500">"Login required to view analytics"</p>
                 }.into_any()
             }}
-            <p>"Page views: " {move || parent_state.dashboard_analytics().page_views().get()}</p>
+            <p>"Page views: " {move || sub_state.dashboard_analytics().page_views().get()}</p>
             <button
                 class="mt-2 px-4 py-2 bg-purple-500 text-white rounded"
                 on:click=move |_| {
-                    parent_state.dashboard_analytics().page_views().update(|v| *v += 1);
+                    sub_state.dashboard_analytics().page_views().update(|v| *v += 1);
                 }
             >
                 "Simulate Page View"
@@ -232,23 +243,26 @@ pub fn DashboardAnalyticsView() -> impl IntoView {
 
 #[component]
 pub fn DashboardSettingsView() -> impl IntoView {
-    let parent_state = use_context::<Field<DashboardState>>()
-        .expect("DashboardState from parent");
+    // Access parent state
+    let parent_state = DashboardState::expect_context();
+
+    // Access the sub_state that contains nested routes
+    let sub_state = DashboardSubState::expect_context();
 
     view! {
         <div class="p-4">
             <h2 class="text-xl font-bold">"Settings"</h2>
-            <p>"Current theme: " {move || parent_state.dashboard_settings().theme().get()}</p>
+            <p>"Current theme: " {move || sub_state.dashboard_settings().theme().get()}</p>
             <div class="mt-4 space-x-2">
                 <button
                     class="px-4 py-2 bg-gray-700 text-white rounded"
-                    on:click=move |_| parent_state.dashboard_settings().theme().set("dark".to_string())
+                    on:click=move |_| sub_state.dashboard_settings().theme().set("dark".to_string())
                 >
                     "Dark Theme"
                 </button>
                 <button
                     class="px-4 py-2 bg-gray-200 text-black rounded"
-                    on:click=move |_| parent_state.dashboard_settings().theme().set("light".to_string())
+                    on:click=move |_| sub_state.dashboard_settings().theme().set("light".to_string())
                 >
                     "Light Theme"
                 </button>
@@ -267,8 +281,7 @@ pub fn DashboardSettingsView() -> impl IntoView {
 
 #[component]
 pub fn NotFoundView() -> impl IntoView {
-    let state = use_context::<Field<NotFoundState>>()
-        .expect("NotFoundState should be provided");
+    let state = NotFoundState::expect_context();
 
     view! {
         <div class="p-4">

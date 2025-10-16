@@ -1,17 +1,19 @@
-# How to Use State Support in leptos-routable
+# State Support Guide for leptos-routable
 
-The state support feature automatically provides reactive state in context for your routes. Here's a complete walkthrough:
+The state support feature automatically provides reactive state in context for routes and their children.
 
-## Step 1: Enable State Support
+## Key Concepts
 
-Add `state_suffix = "State"` to your route enum:
+### 1. Enable State Support (Root Router Only)
+
+Add `state_suffix = "State"` to your **root route enum only**:
 
 ```rust
 #[derive(Routable, PartialEq, Debug, Clone)]
 #[routes(
     view_prefix = "",
     view_suffix = "View",
-    state_suffix = "State",  // ← Enable state support
+    state_suffix = "State",  // ← Only needed on root router!
     transition = false
 )]
 pub enum AppRoutes {
@@ -28,47 +30,65 @@ pub enum AppRoutes {
     #[route(path = "/404")]
     NotFound,
 }
-```
 
-## Step 2: Create State Structs
+// Nested router - NO state_suffix needed
+#[derive(Routable, PartialEq, Debug, Clone)]
+#[routes(view_prefix = "", view_suffix = "View", transition = false)]
+pub enum DashboardRoutes {
+    #[route(path = "/analytics")]
+    DashboardAnalytics,
 
-Create a state struct named `{EnumName}{state_suffix}` with fields for nested routes:
-
-```rust
-use reactive_stores::{Store, Field};
-
-#[derive(Store, Default, Debug)]
-pub struct AppRoutesState {
-    // You can have any fields you want
-    pub shared_data: String,
-    pub theme: String,
-
-    // BUT: Parent routes (those with nested routes) MUST have a field
-    // Field name = snake_case of variant name
-    dashboard: DashboardState,  // Required for Dashboard(DashboardRoutes)
+    #[route(path = "/settings")]
+    DashboardSettings,
 }
 ```
 
-**Key Rules:**
-- ✅ Parent routes MUST have a corresponding field (snake_case naming)
-- ✅ Non-parent routes don't need fields (but can have them if you want)
-- ✅ You can add any other fields you need
-- ✅ All state structs must derive `Store` and `Default`
+### 2. State Structure Requirements
 
-## Step 3: Handle Nested Routes
+**Every route must have a corresponding state struct** (can be empty):
 
-For parent routes with children, include fields for the nested routes:
+```rust
+use reactive_stores::Store;
+
+// Root state - name is {RootEnum}{state_suffix}
+#[derive(Store, Default, Debug)]
+pub struct AppRoutesState {
+    pub home: HomeState,
+    pub about: AboutState,
+    pub dashboard: DashboardState,
+    pub not_found: NotFoundState,
+}
+
+// Individual state structs - can be empty
+#[derive(Store, Default, Debug)]
+pub struct HomeState {
+    pub counter: i32,  // Optional fields
+}
+
+#[derive(Store, Default, Debug)]
+pub struct AboutState {} // Can be empty!
+```
+
+### 3. Parent Routes Need sub_state
+
+Routes with nested routes **must** have a `sub_state` field:
 
 ```rust
 #[derive(Store, Default, Debug)]
 pub struct DashboardState {
-    // Parent route can have its own state
+    // Parent route's own fields (optional)
     pub user: Option<User>,
     pub notifications: Vec<String>,
 
-    // Fields for nested routes (snake_case!)
-    dashboard_analytics: AnalyticsState,  // For DashboardAnalytics
-    dashboard_settings: SettingsState,    // For DashboardSettings
+    // Required: sub_state field of type {ParentName}SubState
+    pub sub_state: DashboardSubState,
+}
+
+// SubState struct contains fields for nested routes
+#[derive(Store, Default, Debug)]
+pub struct DashboardSubState {
+    pub dashboard_analytics: AnalyticsState,
+    pub dashboard_settings: SettingsState,
 }
 
 #[derive(Store, Default, Debug)]
@@ -82,88 +102,131 @@ pub struct SettingsState {
 }
 ```
 
-## Step 4: Access State in Views
+### 4. Field Naming Convention
 
-Parent routes get their state field:
+Fields must use **snake_case** version of route names:
+
+| Route Variant | State Field Name |
+|--------------|------------------|
+| `Home` | `home` |
+| `About` | `about` |
+| `NotFound` | `not_found` |
+| `Dashboard` | `dashboard` |
+| `DashboardAnalytics` | `dashboard_analytics` |
+
+### 5. Auto-Generated Context Helpers
+
+The macro generates convenient helper methods:
 
 ```rust
-#[component]
-pub fn DashboardView() -> impl IntoView {
-    // Parent route gets its state field
-    let state = use_context::<Field<DashboardState>>()
-        .expect("DashboardState should be provided");
+impl YourState {
+    // Returns Option<Store<T>> for root, Option<Field<T>> for others
+    pub fn use_context() -> Option<...> { ... }
 
-    view! {
-        <div>
-            <h1>"Dashboard"</h1>
-            // Access parent state
-            {move || match state.user().get() {
-                Some(user) => view! { <p>"Welcome " {user.name}</p> },
-                None => view! { <p>"Not logged in"</p> }
-            }}
-        </div>
-    }
+    // Returns context or panics with helpful message
+    pub fn expect_context() -> ... { ... }
 }
 ```
 
-Nested routes can access parent state AND their own nested state:
+### 6. Using State in Views
 
 ```rust
 #[component]
-pub fn DashboardAnalyticsView() -> impl IntoView {
-    // Nested route gets parent state
-    let parent_state = use_context::<Field<DashboardState>>()
-        .expect("DashboardState from parent");
+pub fn HomeView() -> impl IntoView {
+    // Simply use the generated helper
+    let state = HomeState::expect_context();
 
     view! {
         <div>
-            // Access parent's user field
-            {move || match parent_state.user().get() {
-                Some(user) => view! { <p>"Analytics for " {user.name}</p> },
-                None => view! { <p>"Login required"</p> }
-            }}
-
-            // Access nested state - maintains full reactivity!
-            <p>"Views: " {move || parent_state.dashboard_analytics().page_views().get()}</p>
-
-            // Updates propagate reactively
+            <p>"Counter: " {move || state.counter().get()}</p>
             <button on:click=move |_| {
-                parent_state.dashboard_analytics().page_views().update(|v| *v += 1);
+                state.counter().update(|c| *c += 1);
             }>
                 "Increment"
             </button>
         </div>
     }
 }
+
+#[component]
+pub fn DashboardAnalyticsView() -> impl IntoView {
+    // Access parent state
+    let parent_state = DashboardState::expect_context();
+
+    // Access sub_state for nested routes
+    let sub_state = DashboardSubState::expect_context();
+
+    view! {
+        <div>
+            // Use parent state
+            {move || match parent_state.user().get() {
+                Some(user) => view! { <p>"User: " {user.name}</p> },
+                None => view! { <p>"Not logged in"</p> }
+            }}
+
+            // Use nested route state
+            <p>"Views: " {move || sub_state.dashboard_analytics().page_views().get()}</p>
+        </div>
+    }
+}
 ```
 
-## Field Naming Convention
+## Important Notes on reactive_stores
 
-The macro converts CamelCase route names to snake_case field names:
+### When to use #[store] attribute
 
-| Route Variant | State Field Name |
-|--------------|-----------------|
-| `Home` | `home` |
-| `About` | `about` |
-| `NotFound` | `not_found` |
-| `Dashboard` | `dashboard` |
-| `DashboardAnalytics` | `dashboard_analytics` |
-| `UserProfile` | `user_profile` |
+Most fields work automatically, but you need `#[store]` for:
 
-## Important Notes
+1. **Keyed collections**:
+   ```rust
+   #[store(key: usize = |todo| todo.id)]
+   todos: Vec<Todo>,
+   ```
 
-1. **Only parent routes are enforced**: The macro only validates that parent routes (those with nested routes) have corresponding state fields. Other routes can optionally have state.
+2. **Complex recursive types**:
+   ```rust
+   #[store]
+   child: Option<Box<Self>>,
+   ```
 
-2. **Add any fields you want**: Your state structs can have additional fields beyond the required ones for nested routes.
+**You DON'T need #[store] for**:
+- Primitive types (`i32`, `String`, `bool`)
+- Nested Store types (like `sub_state: DashboardSubState`)
+- Simple `Option<T>` or `Vec<T>` (unless you want keyed access)
 
-3. **Reactivity is maintained**: Using `Field<T>` ensures all updates are reactive through the entire chain.
+### Reactivity Rules
 
-4. **Context type matters**: Views receive `Field<StateType>`, not `Store<StateType>`.
+1. All fields in a Store-derived struct are reactive
+2. Updates propagate to parents and children, not siblings
+3. The macro handles all the reactive plumbing automatically
 
-## Complete Working Example
+## Complete Example
 
-See `/workspace/examples/state-support/src/lib.rs` for a full implementation showing:
-- Parent routes with state
-- Nested routes accessing parent state
-- Reactive updates propagating through the tree
-- Additional custom fields in state structs
+See `/workspace/examples/state-support/src/lib.rs` for a full working implementation.
+
+## Quick Checklist
+
+- [ ] Add `state_suffix` to root router only
+- [ ] Create state struct named `{RootEnum}{state_suffix}`
+- [ ] Add field for each route (snake_case naming)
+- [ ] For parent routes: add `sub_state: {ParentName}SubState`
+- [ ] Create SubState structs with fields for nested routes
+- [ ] All state structs derive `Store` and `Default`
+- [ ] Use `State::expect_context()` in views
+
+## Troubleshooting
+
+**Compilation Error: "field doesn't exist"**
+- Check field names are snake_case version of route names
+- Ensure parent routes have `sub_state` field
+- Verify SubState type is named `{ParentName}SubState`
+
+**Runtime Panic: "should be provided"**
+- Make sure state_suffix is set on root router
+- Check that all required state structs exist
+- Verify state struct naming follows pattern
+
+**State Not Reactive**
+- Ensure all state structs derive `Store`
+- Use `.get()`, `.set()`, `.update()` for reactive access
+- Check you're not cloning non-reactive values
