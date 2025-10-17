@@ -28,7 +28,7 @@ fn to_snake_case(s: &str) -> String {
 }
 
 trait IntoChildTokens {
-    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2>;
+    fn into_child_tokens(self, view: TokenStream2) -> Option<TokenStream2>;
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -45,7 +45,7 @@ struct RouteVariant {
 }
 
 impl IntoChildTokens for RouteVariant {
-    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+    fn into_child_tokens(self, view: TokenStream2) -> Option<TokenStream2> {
         let path = self.path;
         Some(quote! {
             ::leptos_router::components::Route(
@@ -73,7 +73,7 @@ struct ParentRouteVariant {
 }
 
 impl IntoChildTokens for ParentRouteVariant {
-    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+    fn into_child_tokens(self, view: TokenStream2) -> Option<TokenStream2> {
         let path = self.path;
         let ssr = self.ssr.unwrap_or(syn::parse_quote!(Default::default()));
         // There can only be one, error elsewhere ensures.
@@ -99,7 +99,7 @@ struct ProtectedRouteVariant {
 }
 
 impl IntoChildTokens for ProtectedRouteVariant {
-    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+    fn into_child_tokens(self, view: TokenStream2) -> Option<TokenStream2> {
         let path = self.path;
         let condition = self.condition;
         let redirect_path = self.redirect_path;
@@ -136,7 +136,7 @@ struct ProtectedParentRouteVariant {
 }
 
 impl IntoChildTokens for ProtectedParentRouteVariant {
-    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+    fn into_child_tokens(self, view: TokenStream2) -> Option<TokenStream2> {
         let path = self.path;
         let condition = self.condition;
         let redirect_path = self.redirect_path;
@@ -181,10 +181,13 @@ pub(crate) struct RoutableConfiguration {
 
     #[darling(default)]
     pub(crate) state_suffix: Option<String>,
+
+    #[darling(default)]
+    pub(crate) module_organization: Option<String>,
 }
 
 impl IntoChildTokens for RouteKind {
-    fn into_child_tokens(self, view: Ident) -> Option<TokenStream2> {
+    fn into_child_tokens(self, view: TokenStream2) -> Option<TokenStream2> {
         match self {
             Self::Route(route) => route.into_child_tokens(view),
             Self::ParentRoute(parent) => parent.into_child_tokens(view),
@@ -253,6 +256,7 @@ macro_rules! try_parse_variants {
 
 #[derive(std::fmt::Debug)]
 #[allow(unused)]
+#[allow(clippy::large_enum_variant)]
 enum RouteKind {
     Route(RouteVariant),
     ParentRoute(ParentRouteVariant),
@@ -270,6 +274,19 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         Ok(config) => config,
         Err(err) => return err.write_errors().into(),
     };
+
+    // Validate mutual exclusion between module_organization and view_prefix/view_suffix
+    if config.module_organization.is_some() &&
+       (!config.view_prefix.is_empty() || config.view_suffix != "View") {
+        return syn::Error::new(
+            input_ast.span(),
+            "Cannot use both `module_organization` and `view_prefix`/`view_suffix`. \
+             When `module_organization` is enabled, views are automatically discovered from \
+             the module structure using fixed names (View/Layout). \
+             Remove `view_prefix` and `view_suffix` attributes when using `module_organization`."
+        ).to_compile_error().into();
+    }
+
     let data = match input_ast.data {
         Enum(ref e) => e,
         Struct(_) | Union(_) => {
@@ -293,19 +310,29 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
 
     for variant in &data.variants {
-        let view_ident = crate::utils::build_variant_view_name(&config.ident, &variant.ident, &config);
         let route_kind = match parse_variant(variant) {
             Ok(kind) => kind,
             Err(err) => return err.write_errors().into(),
         };
 
+        // Determine view path based on module_organization
+        let view_path = if let Some(ref module_prefix) = config.module_organization {
+            // Check if this is a parent route (has unnamed fields)
+            let is_parent = matches!(&variant.fields, syn::Fields::Unnamed(_));
+            crate::utils::build_module_view_path(&variant.ident, is_parent, module_prefix)
+        } else {
+            // Traditional view naming with prefix/suffix
+            let view_ident = crate::utils::build_variant_view_name(&config.ident, &variant.ident, &config);
+            quote! { #view_ident }
+        };
+
         match parse_fallback_attrs(variant, input_ast.span(), &fallback) {
-            Ok(()) => { fallback = Some(quote! { #view_ident }); }
+            Ok(()) => { fallback = Some(view_path.clone()); }
             Err(err) => return err.to_compile_error().into(),
         }
 
         // No longer generate per-route wrappers
-        let view_to_use = view_ident;
+        let view_to_use = view_path;
 
         if let Some(kind) = route_kind {
             if let Some(child_ts) = kind.into_child_tokens(view_to_use) {
