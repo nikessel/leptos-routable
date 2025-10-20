@@ -1,0 +1,11 @@
+[package]
+name = "distributed-state-example"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+leptos.workspace = true
+leptos_router.workspace = true
+leptos-routable.workspace = true
+reactive_stores = "0.2"
+console_error_panic_hook = "0.1"

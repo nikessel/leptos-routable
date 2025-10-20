@@ -448,6 +448,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "distributed-state-example"
+version = "0.2.0"
+dependencies = [
+ "console_error_panic_hook",
+ "leptos",
+ "leptos-routable",
+ "leptos_router",
+ "reactive_stores",
+]
+
+[[package]]
 name = "drain_filter_polyfill"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

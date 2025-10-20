@@ -84,3 +84,47 @@ pub(crate) fn build_module_view_path(
 
     path_tokens
 }
+
+/// Builds a module path for a route state type
+///
+/// Examples:
+/// - Regular route state: build_module_state_path("Dashboard", false, "routes")
+///   → crate::routes::dashboard::state::State
+/// - SubState: build_module_state_path("Dashboard", true, "routes")
+///   → crate::routes::dashboard::sub_routes::state::State
+pub(crate) fn build_module_state_path(
+    variant_ident: &syn::Ident,
+    is_sub_state: bool,
+    module_prefix: &str,
+) -> TokenStream2 {
+    let module_name = to_snake_case(&variant_ident.to_string());
+    let module_prefix_normalized = module_prefix.replace('/', "::");
+
+    let path_tokens: TokenStream2 = if is_sub_state {
+        format!(
+            "crate::{}::{}::sub_routes::state::State",
+            module_prefix_normalized,
+            module_name
+        )
+    } else {
+        format!(
+            "crate::{}::{}::state::State",
+            module_prefix_normalized,
+            module_name
+        )
+    }.parse().unwrap();
+
+    path_tokens
+}
+
+/// Builds the root state path for an enum
+///
+/// Example: build_root_state_path("routes") → crate::routes::state::State
+pub(crate) fn build_root_state_path(module_prefix: &str) -> TokenStream2 {
+    let module_prefix_normalized = module_prefix.replace('/', "::");
+
+    format!(
+        "crate::{}::state::State",
+        module_prefix_normalized
+    ).parse().unwrap()
+}

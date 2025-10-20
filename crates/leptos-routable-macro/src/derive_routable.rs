@@ -303,9 +303,10 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     let mut fallback = None::<TokenStream2>;
 
     // Determine if we need state support
-    let state_store_type = config.state_suffix.as_ref().map(|suffix| {
-        let state_name = format!("{}{}", config.ident, suffix);
-        syn::Ident::new(&state_name, config.ident.span())
+    let state_store_type = config.state_suffix.as_ref().and_then(|_suffix| {
+        config.module_organization.as_ref().map(|module_prefix| {
+            crate::utils::build_root_state_path(module_prefix)
+        })
     });
 
 
@@ -355,70 +356,61 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     let enum_ident = config.ident;
     let transition = config.transition;
 
-    // Generate compile-time validation if state_suffix is provided
-    let field_validation = if let Some(ref state_store_type) = state_store_type {
-        let mut all_checks = Vec::new();
+    // Generate compile-time validation if state_suffix is provided WITH module_organization
+    let field_validation = if let Some(ref root_state_path) = state_store_type {
+        if let Some(module_prefix) = config.module_organization.as_ref() {
+            let mut all_checks = Vec::new();
 
-        // Check that ALL routes have corresponding state structs (fields in root state)
-        for variant in &data.variants {
-            let field_name = syn::Ident::new(
-                &to_snake_case(&variant.ident.to_string()),
-                variant.ident.span()
-            );
-
-            // Every route must have a field in the root state
+            // Check that root state type exists
             all_checks.push(quote! {
-                // Every route must have a state field
-                let _ = |store: &#state_store_type| {
-                    let _ = store.#field_name;
-                };
+                let _: Option<#root_state_path> = None;
             });
 
-            // If this is a parent route, it must have a sub_state field
-            if matches!(&variant.fields, syn::Fields::Unnamed(_)) {
-                // Generate the expected SubState type name
-                let sub_state_type = syn::Ident::new(
-                    &format!("{}SubState", variant.ident),
-                    variant.ident.span()
+            // Check that ALL route state types exist
+            for variant in &data.variants {
+                // Build path to this variant's state
+                let variant_state_path = crate::utils::build_module_state_path(
+                    &variant.ident,
+                    false, // is_sub_state = false
+                    module_prefix
                 );
 
-                // Check the type of the state field's sub_state
-                let field_state_type = syn::Ident::new(
-                    &format!("{}State", variant.ident),
-                    variant.ident.span()
-                );
-
+                // Check that the state type exists
                 all_checks.push(quote! {
-                    // Parent routes must have a sub_state field of the correct type
-                    let _ = |state: &#field_state_type| {
-                        let _: &#sub_state_type = &state.sub_state;
-                    };
+                    let _: Option<#variant_state_path> = None;
                 });
 
-                // Also check that the SubState has fields for all nested routes
-                if let syn::Fields::Unnamed(fields) = &variant.fields {
-                    if let Some(syn::Field { ty: syn::Type::Path(type_path), .. }) = fields.unnamed.first() {
-                        if let Some(_nested_enum) = type_path.path.segments.last() {
-                            // This would need to parse the nested enum to get its variants
-                            // For now we'll trust the user to define the SubState correctly
-                        }
-                    }
+                // If this is a parent route, check that SubState exists
+                if matches!(&variant.fields, syn::Fields::Unnamed(_)) {
+                    // Build path to SubState
+                    let sub_state_path = crate::utils::build_module_state_path(
+                        &variant.ident,
+                        true, // is_sub_state = true
+                        module_prefix
+                    );
+
+                    all_checks.push(quote! {
+                        let _: Option<#sub_state_path> = None;
+                    });
                 }
             }
-        }
 
-        quote! {
-            // Compile-time validation that all routes have state
-            const _: () = {
-                #(#all_checks)*
-            };
+            quote! {
+                // Compile-time validation that all state types exist
+                const _: () = {
+                    #(#all_checks)*
+                };
+            }
+        } else {
+            // Old behavior: no validation for centralized state
+            quote! {}
         }
     } else {
         quote! {}
     };
 
-    // Generate context helper impls for all enums
-    let context_helpers = {
+    // Generate context helper impls for all enums (both root and nested)
+    let context_helpers = if let Some(module_prefix) = config.module_organization.as_ref() {
         let mut helper_impls = Vec::new();
 
         // Only root enum gets Store<T> helper
@@ -431,7 +423,7 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
                     pub fn expect_context() -> reactive_stores::Store<#root_state> {
                         Self::use_context()
-                            .expect(concat!(stringify!(#root_state), " should be provided by router"))
+                            .expect("Root state should be provided by router")
                     }
                 }
             });
@@ -439,9 +431,10 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
         // Generate impl for each route's state type (uses Field<T>)
         for variant in &data.variants {
-            let state_type = syn::Ident::new(
-                &format!("{}State", variant.ident),
-                variant.ident.span()
+            let state_type = crate::utils::build_module_state_path(
+                &variant.ident,
+                false,
+                module_prefix
             );
 
             helper_impls.push(quote! {
@@ -452,16 +445,17 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
                     pub fn expect_context() -> reactive_stores::Field<#state_type> {
                         Self::use_context()
-                            .expect(concat!(stringify!(#state_type), " should be provided by router"))
+                            .expect("Route state should be provided by router")
                     }
                 }
             });
 
             // If it's a parent route, also generate helpers for SubState
             if matches!(&variant.fields, syn::Fields::Unnamed(_)) {
-                let sub_state_type = syn::Ident::new(
-                    &format!("{}SubState", variant.ident),
-                    variant.ident.span()
+                let sub_state_type = crate::utils::build_module_state_path(
+                    &variant.ident,
+                    true,
+                    module_prefix
                 );
 
                 helper_impls.push(quote! {
@@ -472,7 +466,7 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
 
                         pub fn expect_context() -> reactive_stores::Field<#sub_state_type> {
                             Self::use_context()
-                                .expect(concat!(stringify!(#sub_state_type), " should be provided by parent route"))
+                                .expect("SubState should be provided by parent route")
                         }
                     }
                 });
@@ -482,16 +476,24 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
         quote! {
             #(#helper_impls)*
         }
+    } else {
+        quote! {}
     };
 
-    // Generate state initialization for routes() method (only for root enum)
+    // Generate state initialization for routes() method (only for root enum with module_organization)
     let state_init = if let Some(ref state_store_type) = state_store_type {
-        let provide_statements = generate_recursive_provides(data, quote! { __root_store });
+        if let Some(module_prefix) = config.module_organization.as_ref() {
+            let (accessor_trait, provide_statements) = generate_recursive_provides(data, quote! { __root_store }, module_prefix);
 
-        quote! {
-            let __root_store = reactive_stores::Store::new(<#state_store_type as Default>::default());
-            leptos::prelude::provide_context(__root_store.clone());
-            #(#provide_statements)*
+            quote! {
+                use #accessor_trait;
+                let __root_store = reactive_stores::Store::new(<#state_store_type as Default>::default());
+                leptos::prelude::provide_context(__root_store.clone());
+                #(#provide_statements)*
+            }
+        } else {
+            // Old behavior: no state initialization for centralized state
+            quote! {}
         }
     } else {
         quote! {}
@@ -501,13 +503,19 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     // 1. Generate __provide_contexts for nested enums (those WITHOUT state_suffix)
     // 2. Generate provide_state_contexts for root enum (one WITH state_suffix)
     let nested_provide_method = if state_store_type.is_none() {
-        generate_nested_provide_method(&enum_ident, data)
+        let module_prefix = config.module_organization.as_ref().unwrap();
+        generate_nested_provide_method(&enum_ident, data, module_prefix)
     } else {
         quote! {}
     };
 
     let root_provide_method = if let Some(ref state_store_type) = state_store_type {
-        generate_root_provide_method(&enum_ident, data, state_store_type)
+        if let Some(module_prefix) = config.module_organization.as_ref() {
+            generate_root_provide_method(&enum_ident, data, state_store_type, module_prefix)
+        } else {
+            // Old behavior: no provide method for centralized state
+            quote! {}
+        }
     } else {
         quote! {}
     };
@@ -1045,33 +1053,26 @@ fn parse_url_parts_tokens() -> proc_macro2::TokenStream {
 fn generate_nested_provide_method(
     enum_ident: &syn::Ident,
     data: &syn::DataEnum,
+    module_prefix: &str,
 ) -> TokenStream2 {
-    let provide_statements = generate_recursive_provides(data, quote! { parent_sub_state });
+    let (accessor_trait, provide_statements) = generate_recursive_provides(data, quote! { parent_sub_state }, module_prefix);
 
-    let enum_name = enum_ident.to_string();
-    let base_name = if enum_name.ends_with("Routes") {
-        enum_name.trim_end_matches("Routes")
-    } else {
-        &enum_name
-    };
-
-    let sub_state_type = syn::Ident::new(
-        &format!("{}SubState", base_name),
-        enum_ident.span()
-    );
-
-    let trait_name = syn::Ident::new(
-        &format!("{}StoreFields", sub_state_type),
-        enum_ident.span()
-    );
+    // Build SubState path directly from module_prefix
+    // For "routes/dashboard/sub_routes", SubState is at "routes/dashboard/sub_routes/state::State"
+    let module_prefix_normalized = module_prefix.replace('/', "::");
+    let sub_state_path: TokenStream2 = format!(
+        "crate::{}::state::State",
+        module_prefix_normalized
+    ).parse().unwrap();
 
     quote! {
         impl #enum_ident {
             #[doc(hidden)]
             pub fn __provide_contexts<F>(parent_sub_state: F)
             where
-                F: reactive_stores::StoreField<Value = #sub_state_type> + #trait_name<F> + Clone + Send + Sync + 'static,
+                F: reactive_stores::StoreField<Value = #sub_state_path> + Clone + Send + Sync + 'static,
             {
+                use #accessor_trait;
                 #(#provide_statements)*
             }
         }
@@ -1081,13 +1082,15 @@ fn generate_nested_provide_method(
 fn generate_root_provide_method(
     enum_ident: &syn::Ident,
     data: &syn::DataEnum,
-    state_store_type: &syn::Ident,
+    state_store_type: &TokenStream2,
+    module_prefix: &str,
 ) -> TokenStream2 {
-    let provide_statements = generate_recursive_provides(data, quote! { root_store });
+    let (accessor_trait, provide_statements) = generate_recursive_provides(data, quote! { root_store }, module_prefix);
 
     quote! {
         impl #enum_ident {
             pub fn provide_state_contexts(root_store: reactive_stores::Store<#state_store_type>) {
+                use #accessor_trait;
                 leptos::prelude::provide_context(root_store.clone());
                 #(#provide_statements)*
             }
@@ -1099,8 +1102,16 @@ fn generate_root_provide_method(
 fn generate_recursive_provides(
     data: &syn::DataEnum,
     accessor: TokenStream2,
-) -> Vec<TokenStream2> {
+    module_prefix: &str,
+) -> (TokenStream2, Vec<TokenStream2>) {
     let mut statements = Vec::new();
+
+    // Build the StateStoreFields trait path for the accessor to import
+    let accessor_state_module = module_prefix.replace('/', "::");
+    let accessor_trait: TokenStream2 = format!(
+        "crate::{}::state::StateStoreFields",
+        accessor_state_module
+    ).parse().unwrap();
 
     for variant in &data.variants {
         let field_name = syn::Ident::new(
@@ -1108,14 +1119,17 @@ fn generate_recursive_provides(
             variant.ident.span()
         );
 
-        let state_type = syn::Ident::new(
-            &format!("{}State", variant.ident),
-            variant.ident.span()
+        let state_type = crate::utils::build_module_state_path(
+            &variant.ident,
+            false,
+            module_prefix
         );
 
         statements.push(quote! {
             leptos::prelude::provide_context(
-                reactive_stores::Field::<#state_type>::from(#accessor.clone().#field_name())
+                reactive_stores::Field::<#state_type>::from(
+                    #accessor.clone().#field_name()
+                )
             );
         });
 
@@ -1124,26 +1138,45 @@ fn generate_recursive_provides(
                 if let Some(nested_enum) = type_path.path.segments.last() {
                     let nested_enum_ident = &nested_enum.ident;
 
-                    let sub_state_type = syn::Ident::new(
-                        &format!("{}SubState", variant.ident),
-                        variant.ident.span()
+                    let sub_state_type = crate::utils::build_module_state_path(
+                        &variant.ident,
+                        true,
+                        module_prefix
                     );
 
+                    // Build trait path for variant's state
+                    let variant_snake = to_snake_case(&variant.ident.to_string());
+                    let variant_state_trait: TokenStream2 = format!(
+                        "crate::{}::{}::state::StateStoreFields",
+                        accessor_state_module,
+                        variant_snake
+                    ).parse().unwrap();
+
                     statements.push(quote! {
-                        leptos::prelude::provide_context(
-                            reactive_stores::Field::<#sub_state_type>::from(#accessor.clone().#field_name().sub_state())
-                        );
+                        {
+                            use #variant_state_trait;
+                            leptos::prelude::provide_context(
+                                reactive_stores::Field::<#sub_state_type>::from(
+                                    #accessor.clone().#field_name().sub_state()
+                                )
+                            );
+                        }
                     });
 
                     statements.push(quote! {
-                        #nested_enum_ident::__provide_contexts(#accessor.clone().#field_name().sub_state());
+                        {
+                            use #variant_state_trait;
+                            #nested_enum_ident::__provide_contexts(
+                                #accessor.clone().#field_name().sub_state()
+                            );
+                        }
                     });
                 }
             }
         }
     }
 
-    statements
+    (accessor_trait, statements)
 }
 
 /* -------------------------------------------------------------------------------------------------

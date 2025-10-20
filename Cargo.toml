@@ -5,6 +5,7 @@ members = [
     "examples/basic-flat-router",
     "examples/basic-nested-router",
     "examples/state-support",
+    "examples/distributed-state",
     "test-fromstr-macro"
 ]
 resolver = "2"
