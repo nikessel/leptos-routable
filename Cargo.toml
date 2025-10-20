@@ -4,7 +4,6 @@ members = [
     "crates/leptos-routable",
     "examples/basic-flat-router",
     "examples/basic-nested-router",
-    "examples/state-support",
     "examples/distributed-state",
     "test-fromstr-macro"
 ]

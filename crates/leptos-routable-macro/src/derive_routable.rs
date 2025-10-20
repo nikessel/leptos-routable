@@ -302,7 +302,7 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     let mut children = Vec::new();
     let mut fallback = None::<TokenStream2>;
 
-    // Determine if we need state support
+    // Determine if we need state support (only with module_organization)
     let state_store_type = config.state_suffix.as_ref().and_then(|_suffix| {
         config.module_organization.as_ref().map(|module_prefix| {
             crate::utils::build_root_state_path(module_prefix)
@@ -357,17 +357,45 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     let transition = config.transition;
 
     // Generate compile-time validation if state_suffix is provided WITH module_organization
-    let field_validation = if let Some(ref root_state_path) = state_store_type {
-        if let Some(module_prefix) = config.module_organization.as_ref() {
-            let mut all_checks = Vec::new();
+    let field_validation = if let Some(module_prefix) = config.module_organization.as_ref() {
+        let mut all_checks = Vec::new();
 
-            // Check that root state type exists
+        // Check that root state type exists (only if state support is enabled)
+        if let Some(ref root_state_path) = state_store_type {
             all_checks.push(quote! {
                 let _: Option<#root_state_path> = None;
             });
+        }
 
-            // Check that ALL route state types exist
-            for variant in &data.variants {
+        // Check that ALL route modules have required submodules
+        for variant in &data.variants {
+            // Always check for types and styles modules exist by attempting to reference them
+            let variant_snake = to_snake_case(&variant.ident.to_string());
+            let module_prefix_normalized = module_prefix.replace('/', "::");
+
+            // Build paths to modules (not types within them)
+            let types_module: TokenStream2 = format!(
+                "crate::{}::{}::types",
+                module_prefix_normalized,
+                variant_snake
+            ).parse().unwrap();
+
+            let styles_module: TokenStream2 = format!(
+                "crate::{}::{}::styles",
+                module_prefix_normalized,
+                variant_snake
+            ).parse().unwrap();
+
+            // Check that modules exist by referencing them with a use statement attempt
+            all_checks.push(quote! {
+                const _: () = {
+                    let _ = stringify!(#types_module);
+                    let _ = stringify!(#styles_module);
+                };
+            });
+
+            // Only check state if state support is enabled
+            if state_store_type.is_some() {
                 // Build path to this variant's state
                 let variant_state_path = crate::utils::build_module_state_path(
                     &variant.ident,
@@ -394,16 +422,13 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
                     });
                 }
             }
+        }
 
-            quote! {
-                // Compile-time validation that all state types exist
-                const _: () = {
-                    #(#all_checks)*
-                };
-            }
-        } else {
-            // Old behavior: no validation for centralized state
-            quote! {}
+        quote! {
+            // Compile-time validation that all required modules exist
+            const _: () = {
+                #(#all_checks)*
+            };
         }
     } else {
         quote! {}
@@ -500,22 +525,18 @@ pub fn derive_routable_impl(input: TokenStream) -> TokenStream {
     };
 
     // Generate state provider methods
-    // 1. Generate __provide_contexts for nested enums (those WITHOUT state_suffix)
+    // 1. Generate __provide_contexts for nested enums (those WITHOUT state_suffix) - only for module-based state
     // 2. Generate provide_state_contexts for root enum (one WITH state_suffix)
-    let nested_provide_method = if state_store_type.is_none() {
+    let nested_provide_method = if state_store_type.is_none() && config.module_organization.is_some() {
         let module_prefix = config.module_organization.as_ref().unwrap();
-        generate_nested_provide_method(&enum_ident, data, module_prefix)
+        generate_nested_provide_method_with_modules(&enum_ident, data, module_prefix)
     } else {
         quote! {}
     };
 
     let root_provide_method = if let Some(ref state_store_type) = state_store_type {
-        if let Some(module_prefix) = config.module_organization.as_ref() {
-            generate_root_provide_method(&enum_ident, data, state_store_type, module_prefix)
-        } else {
-            // Old behavior: no provide method for centralized state
-            quote! {}
-        }
+        let module_prefix = config.module_organization.as_ref().unwrap(); // state_store_type only set when module_organization exists
+        generate_root_provide_method_with_modules(&enum_ident, data, state_store_type, module_prefix)
     } else {
         quote! {}
     };
@@ -1050,7 +1071,7 @@ fn parse_url_parts_tokens() -> proc_macro2::TokenStream {
     }
 }
 
-fn generate_nested_provide_method(
+fn generate_nested_provide_method_with_modules(
     enum_ident: &syn::Ident,
     data: &syn::DataEnum,
     module_prefix: &str,
@@ -1079,7 +1100,7 @@ fn generate_nested_provide_method(
     }
 }
 
-fn generate_root_provide_method(
+fn generate_root_provide_method_with_modules(
     enum_ident: &syn::Ident,
     data: &syn::DataEnum,
     state_store_type: &TokenStream2,

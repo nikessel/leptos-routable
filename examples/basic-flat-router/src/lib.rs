@@ -108,10 +108,10 @@ pub fn AssetListView() -> impl IntoView {
 
                 <div class="mt-4 p-4 rounded">
                     <p class="text-sm font-mono">
-                        "Current Path: " {move || use_location().pathname}
+                        "Current Path: " {move || use_location().pathname.get()}
                     </p>
                     <p class="text-sm font-mono">
-                        "Query String: " {move || use_location().search}
+                        "Query String: " {move || use_location().search.get()}
                     </p>
                 </div>
             </div>

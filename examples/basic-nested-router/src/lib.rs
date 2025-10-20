@@ -6,7 +6,6 @@ use leptos_routable::prelude::{MaybeParam, Routable};
 use leptos_router::components::{Router, A};
 use crate::dashboard::{DashboardRoutes, DashboardView};
 use crate::admin::{AdminRoutes, AdminView};
-use leptos_routable::prelude::combine_paths;
 
 #[derive(Clone)]
 pub struct AuthContext {
@@ -89,7 +88,7 @@ pub fn LoginView() -> impl IntoView {
         <div class="p-4 text-center">
             <h1 class="text-2xl font-bold mb-4">"Login"</h1>
             <Show
-                when=auth.is_logged_in
+                when=move || auth.is_logged_in.get()
                 fallback=move || {
                     view! {
                         <div class="space-y-4">
@@ -217,10 +216,10 @@ pub fn AssetListView() -> impl IntoView {
                 </div>
                 <div class="mt-4 p-4 rounded">
                     <p class="text-sm font-mono">
-                        "Current Path: " {move || use_location().pathname}
+                        "Current Path: " {move || use_location().pathname.get()}
                     </p>
                     <p class="text-sm font-mono">
-                        "Query String: " {move || use_location().search}
+                        "Query String: " {move || use_location().search.get()}
                     </p>
                 </div>
             </div>
